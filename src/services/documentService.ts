@@ -133,7 +133,7 @@ export class DocumentService {
     await prisma.notification.create({
       data: {
         destinataireId: userId, // Temporaire, devrait être l'établissement
-        destinataireRole: 'professionnel',
+        destinataireRole: 'creche',
         enfantId: document.enfantId,
         documentId: document.id,
         type: 'info_generale',
@@ -424,7 +424,7 @@ export class DocumentService {
       await prisma.notification.create({
         data: {
           destinataireId: userId,
-          destinataireRole: 'professionnel',
+          destinataireRole: 'creche',
           enfantId: document.enfantId,
           documentId: document.id,
           type: 'info_generale',
