@@ -16,6 +16,7 @@ import tarifRoutes from './tarifRoutes';
 import logRoutes from './logRoutes';
 import etablissementRoutes from './etablissementRoutes';
 import documentObligatoireRoutes from './documentObligatoireRoutes';
+import migrationRoutes from './migrationRoutes';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.use('/tarifs', tarifRoutes);
 router.use('/logs', logRoutes);
 router.use('/etablissements', etablissementRoutes);
 router.use('/documents-obligatoires', documentObligatoireRoutes);
+router.use('/admin', migrationRoutes);
 
 /**
  * Route de santé de l'API
