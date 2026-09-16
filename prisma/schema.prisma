@@ -1,0 +1,572 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(uuid())
+  email              String              @unique
+  password           String
+  role               UserRole            @default(parent)
+  isActive           Boolean             @default(true)
+  emailVerified      Boolean             @default(false)
+  mustChangePassword Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  lastLoginAt        DateTime?
+  etablissements     EtablissementUser[]
+  profile            Profile?
+  sessions           Session[]
+  enfants            Enfant[]            @relation("EnfantToUser")
+
+  @@index([email])
+  @@index([role])
+}
+
+model Profile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  prenom        String
+  nom           String
+  tel           String?
+  adresse       String?
+  codePostal    String?
+  ville         String?
+  photo         String?
+  langue        String   @default("fr")
+  timezone      String   @default("Europe/Paris")
+  notifications Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+model Etablissement {
+  id              String              @id @default(uuid())
+  nom             String
+  type            String
+  adresse         String
+  codePostal      String
+  ville           String
+  telephone       String?
+  email           String?
+  numeroAgrement  String?
+  capaciteAccueil Int
+  horaires        Json?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  enfants         Enfant[]
+  users           EtablissementUser[]
+  medicaments     Medicament[]
+  personnels                    Personnel[]
+  sections                      Section[]
+  transmissions                 Transmission[]
+  documentsObligatoires         DocumentObligatoireEtablissement[]
+
+  @@index([ville])
+  @@index([isActive])
+}
+
+model EtablissementUser {
+  id              String        @id @default(uuid())
+  userId          String
+  etablissementId String
+  poste           String?
+  dateDebut       DateTime      @default(now())
+  dateFin         DateTime?
+  createdAt       DateTime      @default(now())
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, etablissementId])
+  @@index([userId])
+  @@index([etablissementId])
+}
+
+model Section {
+  id              String        @id @default(uuid())
+  etablissementId String
+  nom             String
+  trancheAge      String
+  ageMin          Int           @default(0)
+  ageMax          Int           @default(36)
+  capacite        Int
+  effectif        Int           @default(0)
+  responsable     String?
+  horaires        String?
+  couleur         String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  enfants         Enfant[]
+  personnels      Personnel[]
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+
+  @@index([etablissementId])
+}
+
+model Personnel {
+  id              String        @id @default(uuid())
+  etablissementId String
+  sectionId       String?
+  prenom          String
+  nom             String
+  email           String
+  tel             String?
+  role            String
+  diplome         String
+  dateEmbauche    DateTime
+  statutDiplome   StatutDiplome @default(valide)
+  habilitations   String[]
+  contrat         TypeContrat   @default(CDI)
+  photo           String?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  section         Section?      @relation(fields: [sectionId], references: [id])
+
+  @@index([etablissementId])
+  @@index([sectionId])
+  @@index([email])
+  @@index([isActive])
+}
+
+model Enfant {
+  id                String         @id @default(uuid())
+  etablissementId   String
+  sectionId         String?
+  prenom            String
+  nom               String
+  dateNaissance     DateTime
+  sexe              String?
+  numeroSecu        String?
+  codeConfidentiel  String         @unique
+  codeGenereLe      DateTime       @default(now())
+  groupeSanguin     String?
+  allergies         String[]
+  regimeAlimentaire String?
+  traitements       String[]
+  contactsUrgence   Json?
+  photo             String?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  statut            StatutEnfant   @default(sain)
+  documents         Document[]
+  etablissement     Etablissement  @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  section           Section?       @relation(fields: [sectionId], references: [id])
+  medicaments       Medicament[]
+  notifications     Notification[]
+  transmissions     Transmission[]
+  parents           User[]         @relation("EnfantToUser")
+
+  @@index([etablissementId])
+  @@index([sectionId])
+  @@index([codeConfidentiel])
+  @@index([isActive])
+}
+
+model Document {
+  id             String           @id @default(uuid())
+  enfantId       String
+  type           TypeDocument
+  nom            String
+  statut         StatutDocument   @default(manquant)
+  dateUpload     DateTime?
+  dateExpiration DateTime?
+  dateValidation DateTime?
+  uploadedBy     String?
+  validatedBy    String?
+  rejectedBy     String?
+  commentaire    String?
+  fichierUrl     String?
+  obligatoire    Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  actions        ActionDocument[]
+  enfant         Enfant           @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+
+  @@index([enfantId])
+  @@index([statut])
+  @@index([type])
+}
+
+model ActionDocument {
+  id          String     @id @default(uuid())
+  documentId  String?
+  enfantId    String
+  type        TypeAction
+  auteurId    String
+  auteurRole  UserRole
+  commentaire String?
+  createdAt   DateTime   @default(now())
+  document    Document?  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([enfantId])
+  @@index([auteurId])
+}
+
+model Notification {
+  id               String               @id @default(uuid())
+  destinataireId   String
+  destinataireRole UserRole
+  enfantId         String?
+  documentId       String?
+  type             TypeNotification
+  titre            String
+  message          String
+  lu               Boolean              @default(false)
+  priorite         PrioriteNotification @default(normale)
+  createdAt        DateTime             @default(now())
+  enfant           Enfant?              @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+
+  @@index([destinataireId])
+  @@index([lu])
+  @@index([priorite])
+  @@index([createdAt])
+}
+
+model Medicament {
+  id                 String                     @id @default(uuid())
+  enfantId           String
+  etablissementId    String
+  nomMedicament      String
+  typeMedicament     TypeMedicament
+  dosage             String
+  voieAdministration VoieAdministration
+  frequence          String
+  dateDebut          DateTime
+  dateFin            DateTime?
+  prescripteur       String?
+  numerOrdonnance    String?
+  indication         String?
+  ordonnanceUrl      String?
+  isActif            Boolean                    @default(true)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  createdBy          String
+  administrations    AdministrationMedicament[]
+  enfant             Enfant                     @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  etablissement      Etablissement              @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+
+  @@index([enfantId])
+  @@index([etablissementId])
+  @@index([isActif])
+  @@index([dateDebut])
+  @@index([dateFin])
+}
+
+model AdministrationMedicament {
+  id               String               @id @default(uuid())
+  medicamentId     String
+  enfantId         String
+  dateHeure        DateTime
+  statut           StatutAdministration @default(fait)
+  administrePar    String
+  administreParNom String
+  commentaire      String?
+  createdAt        DateTime             @default(now())
+  medicament       Medicament           @relation(fields: [medicamentId], references: [id], onDelete: Cascade)
+
+  @@index([medicamentId])
+  @@index([enfantId])
+  @@index([dateHeure])
+  @@index([statut])
+}
+
+model Transmission {
+  id              String                   @id @default(uuid())
+  enfantId        String
+  etablissementId String
+  type            TypeTransmission
+  contenu         String
+  auteurId        String
+  auteurNom       String
+  destinataire    DestinataireTransmission @default(parent)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  enfant          Enfant                   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  etablissement   Etablissement            @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+
+  @@index([enfantId])
+  @@index([etablissementId])
+  @@index([type])
+  @@index([destinataire])
+  @@index([createdAt])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  expediteurId   String
+  destinataireId String
+  objet          String
+  contenu        String
+  lu             Boolean  @default(false)
+  archive        Boolean  @default(false)
+  important      Boolean  @default(false)
+  pieceJointe    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([expediteurId])
+  @@index([destinataireId])
+  @@index([lu])
+  @@index([archive])
+  @@index([createdAt])
+}
+
+model Ordonnance {
+  id               String    @id @default(uuid())
+  enfantId         String
+  medecinId        String
+  medecinNom       String
+  dateOrdonnance   DateTime
+  dateExpiration   DateTime?
+  diagnostic       String
+  prescriptions    Json
+  recommandations  String?
+  fichierUrl       String?
+  numeroOrdonnance String    @unique
+  statut           String    @default("active")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([enfantId])
+  @@index([medecinId])
+  @@index([numeroOrdonnance])
+  @@index([statut])
+}
+
+model DiagnosticIA {
+  id               String   @id @default(uuid())
+  enfantId         String
+  auteurId         String
+  auteurNom        String
+  symptomes        Json
+  temperature      Float?
+  observations     String?
+  resultatIA       Json?
+  probabilites     Json?
+  recommandations  Json?
+  urgence          String   @default("normal")
+  consulterMedecin Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([enfantId])
+  @@index([auteurId])
+  @@index([urgence])
+  @@index([createdAt])
+}
+
+model LogSysteme {
+  id        String   @id @default(uuid())
+  type      String
+  module    String
+  action    String
+  userId    String?
+  userName  String?
+  message   String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([module])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Abonnement {
+  id              String    @id @default(uuid())
+  etablissementId String
+  plan            String
+  statut          String    @default("active")
+  dateDebut       DateTime
+  dateFin         DateTime?
+  prixMensuel     Float
+  devises         String    @default("EUR")
+  fonctionnalites Json
+  limites         Json
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([etablissementId])
+  @@index([statut])
+}
+
+model Tarif {
+  id              String   @id @default(uuid())
+  plan            String   @unique
+  nom             String
+  description     String?
+  prixMensuel     Float
+  prixAnnuel      Float
+  devises         String   @default("EUR")
+  fonctionnalites Json
+  limites         Json
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([plan])
+  @@index([isActive])
+}
+
+model DocumentObligatoireEtablissement {
+  id              String        @id @default(uuid())
+  etablissementId String
+  nom             String
+  description     String?
+  typeDocument    String
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+
+  @@index([etablissementId])
+  @@index([isActive])
+}
+
+enum UserRole {
+  superadmin
+  developpeur
+  creche
+  medecin
+  rsai
+  auxiliaire
+  parent
+}
+
+enum StatutEnfant {
+  sain
+  symptome
+  attention
+}
+
+enum TypeContrat {
+  CDI
+  CDD
+  Vacation
+  Interim
+}
+
+enum StatutDiplome {
+  valide
+  expire_bientot
+  expire
+}
+
+enum TypeDocument {
+  certificat_medical
+  attestation_rc
+  justificatif_domicile
+  fiche_urgence
+  carnet_vaccination
+  contrat_accueil
+  autorisation_sortie
+  autorisation_image
+  pai
+  autre
+}
+
+enum StatutDocument {
+  en_attente
+  soumis
+  valide
+  expire_bientot
+  expire
+  manquant
+  rejete
+}
+
+enum TypeAction {
+  demande
+  upload
+  validation
+  rejet
+  relance
+  regeneration_code
+}
+
+enum TypeNotification {
+  document_demande
+  document_valide
+  document_rejete
+  document_expire_bientot
+  relance
+  nouveau_message
+  incident
+  info_generale
+}
+
+enum PrioriteNotification {
+  basse
+  normale
+  haute
+}
+
+enum TypeMedicament {
+  antibiotique
+  antipyretique
+  antidouleur
+  antitussif
+  antihistaminique
+  homeopathie
+  vitamine
+  autre
+}
+
+enum VoieAdministration {
+  orale
+  rectale
+  cutanee
+  nasale
+  auriculaire
+  oculaire
+  inhalation
+}
+
+enum StatutAdministration {
+  fait
+  refuse
+  absent
+  oubli
+}
+
+enum TypeTransmission {
+  repas
+  sieste
+  soin
+  incident
+  observation
+}
+
+enum DestinataireTransmission {
+  parent
+  medecin
+  equipe
+}
