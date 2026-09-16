@@ -20,10 +20,10 @@ const app: Application = express();
 // Logging des requêtes HTTP
 app.use(morgan(env.nodeEnv === 'development' ? 'dev' : 'combined'));
 
-// CORS - Autoriser les requêtes depuis le frontend
+// CORS - Autoriser les requêtes depuis n'importe quelle origine
 app.use(
   cors({
-    origin: env.corsOrigin,
+    origin: true, // Accepte toutes les origines
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -83,7 +83,7 @@ const startServer = async (): Promise<void> => {
       console.log(`🚀 Serveur Kids'Med IA démarré avec succès!`);
       console.log(`📍 URL: http://localhost:${env.port}`);
       console.log(`🌍 Environnement: ${env.nodeEnv}`);
-      console.log(`🔒 CORS autorisé depuis: ${env.corsOrigin}`);
+      console.log(`🔒 CORS: Toutes les origines sont autorisées`);
       console.log('='.repeat(60));
       console.log('\n📚 Documentation des routes:');
       console.log(`   - Health check:     GET  http://localhost:${env.port}/api/health`);
