@@ -15,7 +15,9 @@
     "db:push": "prisma db push",
     "db:reset": "prisma migrate reset --force",
     "generate-secrets": "node scripts/generate-secrets.js",
-    "check-deploy": "node scripts/check-deployment-ready.js"
+    "check-deploy": "node scripts/check-deployment-ready.js",
+    "migrate-data": "node scripts/migrate-data.js",
+    "migrate": "node scripts/migrate-simple.js"
   },
   "keywords": [
     "kidsmed",
