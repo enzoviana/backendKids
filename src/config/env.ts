@@ -30,6 +30,6 @@ export const env: EnvConfig = {
   jwtRefreshSecret: getEnvVar('JWT_REFRESH_SECRET'),
   jwtAccessExpiresIn: getEnvVar('JWT_ACCESS_EXPIRES_IN', '15m'),
   jwtRefreshExpiresIn: getEnvVar('JWT_REFRESH_EXPIRES_IN', '7d'),
-  corsOrigin: getEnvVar('CORS_ORIGIN', 'http://localhost:3000'),
+  corsOrigin: getEnvVar('CORS_ORIGIN', 'https://web-app-kids-eta.vercel.app'),
   bcryptRounds: parseInt(getEnvVar('BCRYPT_ROUNDS', '12')),
 };
