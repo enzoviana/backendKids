@@ -618,3 +618,77 @@ enum StatutTicket {
   resolu
   ferme
 }
+
+model DemandeRsai {
+  id              String          @id @default(uuid())
+  crecheId        String
+  etablissementId String
+  motif           String
+  dateDebut       DateTime
+  dateFin         DateTime?
+  urgence         Boolean         @default(false)
+  statut          StatutDemande   @default(en_attente)
+  traitePar       String?
+  commentaire     String?
+  dateTraitement  DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([crecheId])
+  @@index([etablissementId])
+  @@index([statut])
+  @@index([createdAt])
+}
+
+model AffectationRsai {
+  id              String            @id @default(uuid())
+  rsaiId          String
+  crecheId        String
+  etablissementId String
+  dateDebut       DateTime
+  dateFin         DateTime?
+  horaires        Json?
+  perimetreGps    Json?
+  statut          StatutAffectation @default(active)
+  creePar         String
+  revoqueePar     String?
+  dateRevocation  DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([rsaiId])
+  @@index([crecheId])
+  @@index([etablissementId])
+  @@index([statut])
+  @@index([dateDebut])
+}
+
+model AvisRsai {
+  id          String   @id @default(uuid())
+  rsaiId      String
+  crecheId    String
+  auteurId    String
+  auteurNom   String
+  note        Int
+  commentaire String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([rsaiId])
+  @@index([crecheId])
+  @@index([auteurId])
+  @@index([createdAt])
+}
+
+enum StatutDemande {
+  en_attente
+  acceptee
+  refusee
+  annulee
+}
+
+enum StatutAffectation {
+  active
+  terminee
+  revoquee
+}

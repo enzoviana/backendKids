@@ -62,7 +62,31 @@ export class RsaiController {
 
   async getMyAffectations(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      res.status(200).json({ success: true, data: [] });
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
+      const { statut } = req.query;
+
+      const where: any = {
+        rsaiId: req.user.userId,
+      };
+
+      if (statut) {
+        where.statut = statut;
+      }
+
+      const affectations = await prisma.affectationRsai.findMany({
+        where,
+        orderBy: { dateDebut: 'desc' },
+      });
+
+      res.status(200).json({
+        success: true,
+        data: affectations,
+        total: affectations.length,
+      });
     } catch (error) {
       next(error);
     }
@@ -70,7 +94,54 @@ export class RsaiController {
 
   async createAvisRsai(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      res.status(201).json({ success: true, data: { noteMoyenne: 0, nbAvis: 0 } });
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
+      const { rsaiId } = req.params;
+      const { note, commentaire } = req.body;
+
+      if (!note || note < 1 || note > 5) {
+        res.status(400).json({
+          success: false,
+          error: 'La note doit être entre 1 et 5',
+        });
+        return;
+      }
+
+      // Récupérer le profil pour le nom
+      const profile = await prisma.profile.findUnique({
+        where: { userId: req.user.userId },
+      });
+
+      const avis = await prisma.avisRsai.create({
+        data: {
+          rsaiId,
+          crecheId: req.user.userId,
+          auteurId: req.user.userId,
+          auteurNom: profile ? `${profile.prenom} ${profile.nom}` : req.user.email || 'Utilisateur',
+          note,
+          commentaire: commentaire || null,
+        },
+      });
+
+      // Calculer la note moyenne et le nombre d'avis
+      const allAvis = await prisma.avisRsai.findMany({
+        where: { rsaiId },
+      });
+
+      const noteMoyenne = allAvis.reduce((sum, a) => sum + a.note, 0) / allAvis.length;
+
+      res.status(201).json({
+        success: true,
+        data: avis,
+        stats: {
+          noteMoyenne: Math.round(noteMoyenne * 10) / 10,
+          nbAvis: allAvis.length,
+        },
+        message: 'Avis créé avec succès',
+      });
     } catch (error) {
       next(error);
     }
