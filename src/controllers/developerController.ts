@@ -252,17 +252,18 @@ export class DeveloperController {
       ];
 
       // Taille de la base (nécessite une requête raw PostgreSQL)
-      let dbSize: any = 0;
+      let totalSizeMB = 0;
       try {
         const sizeResult = await prisma.$queryRaw<any[]>`
           SELECT pg_database_size(current_database()) as size
         `;
-        dbSize = sizeResult[0]?.size || 0;
+        const dbSize = sizeResult[0]?.size || 0;
+        // Convertir BigInt en Number pour les calculs
+        const sizeInBytes = typeof dbSize === 'bigint' ? Number(dbSize) : dbSize;
+        totalSizeMB = Math.round(sizeInBytes / (1024 * 1024) * 10) / 10;
       } catch (error) {
         console.error('Erreur calcul taille DB:', error);
       }
-
-      const totalSizeMB = Math.round(dbSize / (1024 * 1024) * 10) / 10;
 
       res.status(200).json({
         success: true,
