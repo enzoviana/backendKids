@@ -205,9 +205,31 @@ export class DeveloperController {
    */
   async getSupportTickets(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      const { statut, priorite, categorie, limit } = req.query;
+
+      const where: any = {};
+      if (statut) where.statut = statut;
+      if (priorite) where.priorite = priorite;
+      if (categorie) where.categorie = categorie;
+
+      const tickets = await prisma.ticketSupport.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit ? parseInt(limit as string) : 100,
+      });
+
+      const stats = {
+        total: await prisma.ticketSupport.count(),
+        ouvert: await prisma.ticketSupport.count({ where: { statut: 'ouvert' } }),
+        en_cours: await prisma.ticketSupport.count({ where: { statut: 'en_cours' } }),
+        resolu: await prisma.ticketSupport.count({ where: { statut: 'resolu' } }),
+        ferme: await prisma.ticketSupport.count({ where: { statut: 'ferme' } }),
+      };
+
       res.status(200).json({
         success: true,
-        data: [],
+        data: tickets,
+        stats,
       });
     } catch (error) {
       next(error);
@@ -322,15 +344,52 @@ export class DeveloperController {
    */
   async createSupportTicket(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
       const { titre, description, priorite, categorie } = req.body;
+
+      if (!titre || !description) {
+        res.status(400).json({
+          success: false,
+          error: 'Le titre et la description sont obligatoires',
+        });
+        return;
+      }
+
+      // Récupérer le profil de l'utilisateur pour avoir son nom
+      const profile = await prisma.profile.findUnique({
+        where: { userId: req.user.userId },
+      });
+
+      const auteurNom = profile ? `${profile.prenom} ${profile.nom}` : 'Utilisateur';
+
+      // Générer le numéro de ticket
+      const count = await prisma.ticketSupport.count();
+      const numero = `TCK-${String(count + 1).padStart(4, '0')}`;
+
+      // Créer le ticket
+      const ticket = await prisma.ticketSupport.create({
+        data: {
+          numero,
+          auteurId: req.user.userId,
+          auteurNom,
+          auteurEmail: req.user.email || '',
+          auteurRole: req.user.role,
+          titre,
+          description,
+          priorite: priorite || 'normale',
+          categorie: categorie || 'autre',
+          statut: 'ouvert',
+        },
+      });
 
       res.status(201).json({
         success: true,
-        data: {
-          _id: 'temp-id',
-          numero: 'TCK-0001',
-          statut: 'ouvert',
-        },
+        data: ticket,
+        message: 'Ticket créé avec succès',
       });
     } catch (error) {
       next(error);
@@ -343,9 +402,113 @@ export class DeveloperController {
    */
   async getMySupportTickets(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
+      const { statut } = req.query;
+
+      const where: any = {
+        auteurId: req.user.userId,
+      };
+      if (statut) where.statut = statut;
+
+      const tickets = await prisma.ticketSupport.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+      });
+
       res.status(200).json({
         success: true,
-        data: [],
+        data: tickets,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/developer/support/tickets/:id
+   * Récupérer un ticket par ID
+   */
+  async getSupportTicketById(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const ticket = await prisma.ticketSupport.findUnique({
+        where: { id },
+      });
+
+      if (!ticket) {
+        res.status(404).json({
+          success: false,
+          error: 'Ticket non trouvé',
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        data: ticket,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/developer/support/tickets/:id
+   * Mettre à jour un ticket (répondre, changer le statut)
+   */
+  async updateSupportTicket(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
+      const { id } = req.params;
+      const { statut, reponse, priorite } = req.body;
+
+      const ticket = await prisma.ticketSupport.findUnique({
+        where: { id },
+      });
+
+      if (!ticket) {
+        res.status(404).json({
+          success: false,
+          error: 'Ticket non trouvé',
+        });
+        return;
+      }
+
+      // Récupérer le profil pour le nom
+      const profile = await prisma.profile.findUnique({
+        where: { userId: req.user.userId },
+      });
+
+      const updateData: any = {};
+      if (statut) updateData.statut = statut;
+      if (priorite) updateData.priorite = priorite;
+      if (reponse) {
+        updateData.reponse = reponse;
+        updateData.reponduPar = profile ? `${profile.prenom} ${profile.nom}` : req.user.email;
+        updateData.dateReponse = new Date();
+      }
+      if (statut === 'ferme' && !ticket.dateFermeture) {
+        updateData.dateFermeture = new Date();
+      }
+
+      const updatedTicket = await prisma.ticketSupport.update({
+        where: { id },
+        data: updateData,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: updatedTicket,
+        message: 'Ticket mis à jour avec succès',
       });
     } catch (error) {
       next(error);

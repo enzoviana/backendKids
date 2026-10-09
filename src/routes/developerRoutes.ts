@@ -63,4 +63,23 @@ router.get(
   developerController.getMySupportTickets
 );
 
+/**
+ * GET /api/developer/support/tickets/:id
+ * Récupérer un ticket par ID (accessible à tous)
+ */
+router.get(
+  '/support/tickets/:id',
+  developerController.getSupportTicketById
+);
+
+/**
+ * PATCH /api/developer/support/tickets/:id
+ * Mettre à jour un ticket (répondre, changer statut) - Développeurs uniquement
+ */
+router.patch(
+  '/support/tickets/:id',
+  requireDeveloper,
+  developerController.updateSupportTicket
+);
+
 export default router;

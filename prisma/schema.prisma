@@ -570,3 +570,51 @@ enum DestinataireTransmission {
   medecin
   equipe
 }
+
+model TicketSupport {
+  id            String              @id @default(uuid())
+  numero        String              @unique
+  auteurId      String
+  auteurNom     String
+  auteurEmail   String
+  auteurRole    UserRole
+  titre         String
+  description   String
+  categorie     CategorieTicket     @default(autre)
+  priorite      PrioriteTicket      @default(normale)
+  statut        StatutTicket        @default(ouvert)
+  reponse       String?
+  reponduPar    String?
+  dateReponse   DateTime?
+  dateFermeture DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([auteurId])
+  @@index([statut])
+  @@index([priorite])
+  @@index([createdAt])
+  @@index([numero])
+}
+
+enum CategorieTicket {
+  bug
+  amelioration
+  question
+  probleme_technique
+  autre
+}
+
+enum PrioriteTicket {
+  basse
+  normale
+  haute
+  critique
+}
+
+enum StatutTicket {
+  ouvert
+  en_cours
+  resolu
+  ferme
+}
