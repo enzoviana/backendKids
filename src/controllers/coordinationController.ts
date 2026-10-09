@@ -102,10 +102,23 @@ export class CoordinationController {
         perimetreGps,
       } = req.body;
 
-      if (!rsaiId || !crecheId || !etablissementId || !dateDebut) {
+      // Validation détaillée
+      const missingFields: string[] = [];
+      if (!rsaiId) missingFields.push('rsaiId');
+      if (!crecheId) missingFields.push('crecheId');
+      if (!etablissementId) missingFields.push('etablissementId');
+      if (!dateDebut) missingFields.push('dateDebut');
+
+      if (missingFields.length > 0) {
         res.status(400).json({
           success: false,
-          error: 'Champs requis : rsaiId, crecheId, etablissementId, dateDebut',
+          error: `Champs manquants : ${missingFields.join(', ')}`,
+          received: {
+            rsaiId: rsaiId || null,
+            crecheId: crecheId || null,
+            etablissementId: etablissementId || null,
+            dateDebut: dateDebut || null,
+          },
         });
         return;
       }
@@ -219,10 +232,21 @@ export class CoordinationController {
 
       const { etablissementId, motif, dateDebut, dateFin, urgence } = req.body;
 
-      if (!etablissementId || !motif || !dateDebut) {
+      // Validation détaillée
+      const missingFields: string[] = [];
+      if (!etablissementId) missingFields.push('etablissementId');
+      if (!motif) missingFields.push('motif');
+      if (!dateDebut) missingFields.push('dateDebut');
+
+      if (missingFields.length > 0) {
         res.status(400).json({
           success: false,
-          error: 'Champs requis : etablissementId, motif, dateDebut',
+          error: `Champs manquants : ${missingFields.join(', ')}`,
+          received: {
+            etablissementId: etablissementId || null,
+            motif: motif || null,
+            dateDebut: dateDebut || null,
+          },
         });
         return;
       }
