@@ -172,4 +172,20 @@ export const etablissementController = {
       next(error);
     }
   },
+
+  async getSanteIndicateurs(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: { vaccinsAJour: 0, allergiques: 0, pai: 0, traitementsEnCours: 0, evolution: [] } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async createAvisRsai(req: Request, res: Response) {
+    try {
+      res.status(201).json({ success: true, data: { _id: 'temp', noteMoyenne: 0, nbAvis: 0 } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
 };

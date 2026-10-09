@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { diagnosticController } from '../controllers/diagnosticController';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
+import { upload } from '../middleware/upload';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
@@ -38,5 +40,36 @@ router.get('/:id', diagnosticController.getDiagnosticById);
  * Supprimer un diagnostic
  */
 router.delete('/:id', diagnosticController.deleteDiagnostic);
+
+/**
+ * GET /api/diagnostics
+ * Liste des diagnostics IA récents (pas de route de liste globale)
+ * Query params: ?etablissementId=&limit=
+ */
+router.get(
+  '/',
+  authorize(UserRole.rsai, UserRole.medecin, UserRole.superadmin, UserRole.developpeur),
+  diagnosticController.getAllDiagnostics
+);
+
+/**
+ * POST /api/diagnostics/analyser
+ * Analyse IA des symptômes (multipart/form-data)
+ */
+router.post(
+  '/analyser',
+  upload.single('photo'),
+  diagnosticController.analyserSymptomes
+);
+
+/**
+ * POST /api/diagnostics/:id/retour-medecin
+ * Retour du médecin sur l'exactitude du diagnostic IA
+ */
+router.post(
+  '/:id/retour-medecin',
+  authorize(UserRole.medecin),
+  diagnosticController.retourMedecin
+);
 
 export default router;

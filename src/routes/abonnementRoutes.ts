@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { abonnementController } from '../controllers/abonnementController';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, authorize } from '../middleware/auth';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
@@ -50,5 +51,48 @@ router.patch('/:id/suspendre', requireAdmin, abonnementController.suspendreAbonn
  * Réactiver un abonnement (admin seulement)
  */
 router.patch('/:id/reactiver', requireAdmin, abonnementController.reactiverAbonnement);
+
+/**
+ * GET /api/abonnements/me
+ * Abonnement de l'utilisateur connecté
+ */
+router.get(
+  '/me',
+  authorize(UserRole.medecin, UserRole.superadmin, UserRole.developpeur, UserRole.creche, UserRole.rsai),
+  abonnementController.getMyAbonnement
+);
+
+/**
+ * GET /api/abonnements/revenus
+ * Revenus mensuels (MRR) par plan
+ * Query params: ?annee=2026
+ */
+router.get('/revenus', requireAdmin, abonnementController.getRevenus);
+
+/**
+ * POST /api/abonnements/checkout-session
+ * Crée une session de paiement Stripe
+ */
+router.post(
+  '/checkout-session',
+  authorize(UserRole.creche, UserRole.rsai, UserRole.medecin, UserRole.parent),
+  abonnementController.createCheckoutSession
+);
+
+/**
+ * POST /api/abonnements/portail
+ * Lien vers le portail client Stripe
+ */
+router.post(
+  '/portail',
+  authorize(UserRole.creche, UserRole.rsai, UserRole.medecin, UserRole.parent),
+  abonnementController.createPortalSession
+);
+
+/**
+ * PUT /api/abonnements/:id/attribuer
+ * L'admin attribue ou change la formule d'un compte sans paiement
+ */
+router.put('/:id/attribuer', requireAdmin, abonnementController.attribuerAbonnement);
 
 export default router;

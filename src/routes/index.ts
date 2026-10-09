@@ -17,6 +17,19 @@ import logRoutes from './logRoutes';
 import etablissementRoutes from './etablissementRoutes';
 import documentObligatoireRoutes from './documentObligatoireRoutes';
 import migrationRoutes from './migrationRoutes';
+import developerRoutes from './developerRoutes';
+import alerteRoutes from './alerteRoutes';
+import presenceRoutes from './presenceRoutes';
+import medecinRoutes from './medecinRoutes';
+import rsaiRoutes from './rsaiRoutes';
+import rendezVousRoutes from './rendezVousRoutes';
+import parentRoutes from './parentRoutes';
+import liaisonRoutes from './liaisonRoutes';
+import vaccinRoutes from './vaccinRoutes';
+import consentementRoutes from './consentementRoutes';
+import rgpdRoutes from './rgpdRoutes';
+import securiteRoutes from './securiteRoutes';
+import coordinationRoutes from './coordinationRoutes';
 
 const router = Router();
 
@@ -41,6 +54,19 @@ router.use('/logs', logRoutes);
 router.use('/etablissements', etablissementRoutes);
 router.use('/documents-obligatoires', documentObligatoireRoutes);
 router.use('/admin', migrationRoutes);
+router.use('/developer', developerRoutes);
+router.use('/alertes', alerteRoutes);
+router.use('/presences', presenceRoutes);
+router.use('/medecins', medecinRoutes);
+router.use('/rsai', rsaiRoutes);
+router.use('/rendez-vous', rendezVousRoutes);
+router.use('/parents', parentRoutes);
+router.use('/liaisons', liaisonRoutes);
+router.use('/vaccins', vaccinRoutes);
+router.use('/consentements', consentementRoutes);
+router.use('/rgpd', rgpdRoutes);
+router.use('/securite', securiteRoutes);
+router.use('/coordination', coordinationRoutes);
 
 /**
  * Route de santé de l'API

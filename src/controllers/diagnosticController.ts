@@ -81,4 +81,28 @@ export const diagnosticController = {
       res.status(500).json({ success: false, error: error.message });
     }
   },
+
+  async getAllDiagnostics(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async analyserSymptomes(req: Request, res: Response) {
+    try {
+      res.status(201).json({ success: true, data: { _id: 'temp', niveau_risque: 'faible', orientation: 'surveillance' } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async retourMedecin(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
 };

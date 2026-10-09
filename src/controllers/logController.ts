@@ -113,4 +113,20 @@ export const logController = {
       res.status(500).json({ success: false, error: error.message });
     }
   },
+
+  async getLogsSecurite(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async getLogsSecuriteByEnfant(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
 };

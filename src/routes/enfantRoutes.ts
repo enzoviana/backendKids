@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { enfantController } from '../controllers/enfantController';
-import { authenticate, requireProfessional } from '../middleware/auth';
+import { authenticate, requireProfessional, authorize } from '../middleware/auth';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
@@ -61,5 +62,63 @@ router.post(
  * Supprimer un enfant (professionnel uniquement)
  */
 router.delete('/:id', requireProfessional, enfantController.deleteEnfant.bind(enfantController));
+
+/**
+ * POST /api/enfants/lier-code
+ * Lier l'utilisateur connecté (parent, médecin, crèche) à un enfant grâce au code de liaison
+ */
+router.post('/lier-code', enfantController.lierCode.bind(enfantController));
+
+/**
+ * GET /api/enfants/:id/qrcode
+ * QR code de liaison parent
+ */
+router.get(
+  '/:id/qrcode',
+  authorize(UserRole.creche, UserRole.superadmin, UserRole.developpeur),
+  enfantController.getQRCode.bind(enfantController)
+);
+
+/**
+ * PATCH /api/enfants/:id/dossier-medical
+ * Mise à jour par le parent des infos médicales
+ */
+router.patch(
+  '/:id/dossier-medical',
+  authorize(UserRole.parent, UserRole.medecin),
+  enfantController.updateDossierMedical.bind(enfantController)
+);
+
+/**
+ * GET /api/enfants/:id/notes
+ * Notes crèche/médecin : publiques = acteurs liés, médicales = professionnels autorisés uniquement
+ */
+router.get('/:id/notes', enfantController.getNotes.bind(enfantController));
+
+/**
+ * POST /api/enfants/:id/notes
+ * Crèche/médecin publie une note publique ou médicale
+ */
+router.post(
+  '/:id/notes',
+  authorize(UserRole.creche, UserRole.medecin),
+  enfantController.createNote.bind(enfantController)
+);
+
+/**
+ * GET /api/enfants/:id/echanges-documents
+ * Demandes et envois entre médecin/crèche/parents liés
+ */
+router.get('/:id/echanges-documents', enfantController.getEchangesDocuments.bind(enfantController));
+
+/**
+ * POST /api/enfants/:id/echanges-documents
+ * Médecin demande/envoie un document à la crèche ou aux parents
+ */
+router.post(
+  '/:id/echanges-documents',
+  authorize(UserRole.creche, UserRole.medecin, UserRole.parent),
+  enfantController.createEchangeDocument.bind(enfantController)
+);
 
 export default router;

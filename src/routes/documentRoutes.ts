@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { documentController } from '../controllers/documentController';
-import { authenticate, requireProfessional } from '../middleware/auth';
+import { authenticate, requireProfessional, authorize, requireAdmin } from '../middleware/auth';
 import { upload } from '../middleware/upload';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
@@ -82,5 +83,30 @@ router.post(
   requireProfessional,
   documentController.relancerDocument.bind(documentController)
 );
+
+/**
+ * GET /api/documents/accessibles
+ * Documents accessibles : enfants liés uniquement ; admin supervision
+ * Query params: ?enfantId=&type=Ordonnance
+ */
+router.get('/accessibles', documentController.getDocumentsAccessibles.bind(documentController));
+
+/**
+ * POST /api/documents/depot-medical
+ * Dépôt médecin/parent/admin, ordonnance liée à l'enfant
+ */
+router.post(
+  '/depot-medical',
+  authorize(UserRole.medecin, UserRole.parent, UserRole.superadmin, UserRole.developpeur),
+  upload.single('fichier'),
+  documentController.depotMedical.bind(documentController)
+);
+
+/**
+ * GET /api/documents/alertes
+ * Pièces obligatoires manquantes, rejetées, expirées ou expirant sous 30 jours
+ * Query params: ?enfantId=&etablissementId=&horizonJours=30
+ */
+router.get('/alertes', documentController.getAlertes.bind(documentController));
 
 export default router;

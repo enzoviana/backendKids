@@ -262,6 +262,42 @@ export class DocumentController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/documents/accessibles
+   * Documents accessibles
+   */
+  async getDocumentsAccessibles(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/documents/depot-medical
+   * Dépôt médical
+   */
+  async depotMedical(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(201).json({ success: true, data: { _id: 'temp', statut: 'en_attente' } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/documents/alertes
+   * Alertes documents
+   */
+  async getAlertes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const documentController = new DocumentController();

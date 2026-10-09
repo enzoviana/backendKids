@@ -202,6 +202,151 @@ export class EnfantController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/enfants/lier-code
+   * Lier l'utilisateur connecté à un enfant via le code
+   */
+  async lierCode(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, error: 'Non authentifié' });
+        return;
+      }
+
+      const { code } = req.body;
+      // TODO: Implémenter la logique pour tous les rôles (pas seulement parent)
+      const enfant = await enfantService.lierParent(code, req.user.userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          _id: enfant.id,
+          prenom: enfant.prenom,
+          nom: enfant.nom,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/enfants/:id/qrcode
+   * QR code de liaison parent
+   */
+  async getQRCode(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      // TODO: Générer le QR code
+      res.status(200).json({
+        success: true,
+        data: {
+          code: 'LEA-1234',
+          qrCodeUrl: 'data:image/png;base64,...',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/enfants/:id/dossier-medical
+   * Mise à jour du dossier médical
+   */
+  async updateDossierMedical(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { groupeSanguin, allergies, antecedents } = req.body;
+      // TODO: Implémenter la mise à jour
+      res.status(200).json({
+        success: true,
+        data: {
+          _id: id,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/enfants/:id/notes
+   * Récupérer les notes d'un enfant
+   */
+  async getNotes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      // TODO: Implémenter la logique
+      res.status(200).json({
+        success: true,
+        data: [],
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/enfants/:id/notes
+   * Créer une note pour un enfant
+   */
+  async createNote(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { contenu, visibilite, destinataire } = req.body;
+      // TODO: Implémenter la logique
+      res.status(201).json({
+        success: true,
+        data: {
+          _id: 'temp-id',
+          createdAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/enfants/:id/echanges-documents
+   * Récupérer les échanges de documents
+   */
+  async getEchangesDocuments(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      // TODO: Implémenter la logique
+      res.status(200).json({
+        success: true,
+        data: [],
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/enfants/:id/echanges-documents
+   * Créer un échange de document
+   */
+  async createEchangeDocument(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { action, destinataire, type, message, documentId, demandeId, echeance } = req.body;
+      // TODO: Implémenter la logique
+      res.status(201).json({
+        success: true,
+        data: {
+          _id: 'temp-id',
+          statut: 'en_attente',
+          createdAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const enfantController = new EnfantController();

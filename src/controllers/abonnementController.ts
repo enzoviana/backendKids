@@ -106,4 +106,44 @@ export const abonnementController = {
       res.status(500).json({ success: false, error: error.message });
     }
   },
+
+  async getMyAbonnement(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: { plan: 'essentiel', statut: 'actif', prixMensuel: 0, quota: {} } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async getRevenus(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: [] });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async createCheckoutSession(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: { url: 'https://checkout.stripe.com/...', sessionId: 'cs_test_...' } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async createPortalSession(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: { url: 'https://billing.stripe.com/...' } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  async attribuerAbonnement(req: Request, res: Response) {
+    try {
+      res.status(200).json({ success: true, data: {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
 };

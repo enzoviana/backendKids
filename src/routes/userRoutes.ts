@@ -3,6 +3,7 @@ import { userController } from '../controllers/userController';
 import { authenticate, requireAdmin } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
 import { updateProfileValidation } from '../utils/validators';
+import { upload } from '../middleware/upload';
 
 const router = Router();
 
@@ -74,6 +75,22 @@ router.delete(
   '/:userId',
   requireAdmin,
   userController.deleteUser.bind(userController)
+);
+
+/**
+ * GET /api/users/export-data
+ * Export RGPD de mes données
+ */
+router.get('/export-data', userController.exportMyData.bind(userController));
+
+/**
+ * POST /api/users/me/avatar
+ * Photo de profil (multipart, champ « photo », jpg/png ≤ 2 Mo)
+ */
+router.post(
+  '/me/avatar',
+  upload.single('photo'),
+  userController.uploadAvatar.bind(userController)
 );
 
 export default router;

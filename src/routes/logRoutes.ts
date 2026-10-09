@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { logController } from '../controllers/logController';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, authorize } from '../middleware/auth';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
@@ -49,5 +50,28 @@ router.get('/user/:userId', logController.getLogsByUser);
  * Query params: ?daysToKeep=xxx (défaut: 90)
  */
 router.delete('/clean', logController.cleanOldLogs);
+
+/**
+ * GET /api/logs/securite
+ * Collection logs_securite : action, utilisateur, IP et appareil
+ * Query params: ?action=consultation_dossier|modification_dossier|tentative_connexion|acces_refuse&enfantId=
+ */
+router.get(
+  '/securite',
+  authenticate,
+  authorize(UserRole.superadmin, UserRole.developpeur),
+  logController.getLogsSecurite
+);
+
+/**
+ * GET /api/logs/securite/enfant/:enfantId
+ * Qui a consulté / modifié le dossier de cet enfant
+ */
+router.get(
+  '/securite/enfant/:enfantId',
+  authenticate,
+  authorize(UserRole.superadmin, UserRole.creche, UserRole.parent, UserRole.developpeur),
+  logController.getLogsSecuriteByEnfant
+);
 
 export default router;

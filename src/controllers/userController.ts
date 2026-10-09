@@ -163,6 +163,30 @@ export class UserController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/users/export-data
+   * Export RGPD de mes données
+   */
+  async exportMyData(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json({ success: true, data: {} });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/users/me/avatar
+   * Upload de l'avatar
+   */
+  async uploadAvatar(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      res.status(200).json({ success: true, data: { avatarUrl: '/uploads/avatar.jpg' } });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const userController = new UserController();
