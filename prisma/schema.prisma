@@ -419,21 +419,23 @@ model Abonnement {
 }
 
 model Tarif {
-  id              String   @id @default(uuid())
-  plan            String   @unique
+  id              String    @id @default(uuid())
+  plan            String    @unique
   nom             String
   description     String?
+  roleCible       UserRole? // Rôle ciblé par ce tarif (null = tous)
   prixMensuel     Float
   prixAnnuel      Float
-  devises         String   @default("EUR")
+  devises         String    @default("EUR")
   fonctionnalites Json
   limites         Json
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([plan])
   @@index([isActive])
+  @@index([roleCible])
 }
 
 model DocumentObligatoireEtablissement {
@@ -691,4 +693,17 @@ enum StatutAffectation {
   active
   terminee
   revoquee
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }

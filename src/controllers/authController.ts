@@ -150,6 +150,61 @@ export class AuthController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/auth/forgot-password
+   * Demande de réinitialisation de mot de passe
+   */
+  async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        res.status(400).json({
+          success: false,
+          error: 'L\'email est requis',
+        });
+        return;
+      }
+
+      await authService.forgotPassword(email);
+
+      // Toujours renvoyer le même message pour éviter l'énumération d'emails
+      res.status(200).json({
+        success: true,
+        message: 'Un e-mail de réinitialisation a été envoyé si le compte existe.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/auth/reset-password
+   * Réinitialiser le mot de passe avec un token
+   */
+  async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { token, nouveauMotDePasse } = req.body;
+
+      if (!token || !nouveauMotDePasse) {
+        res.status(400).json({
+          success: false,
+          error: 'Le token et le nouveau mot de passe sont requis',
+        });
+        return;
+      }
+
+      await authService.resetPassword(token, nouveauMotDePasse);
+
+      res.status(200).json({
+        success: true,
+        message: 'Mot de passe mis à jour avec succès.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const authController = new AuthController();

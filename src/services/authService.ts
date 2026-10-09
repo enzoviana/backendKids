@@ -4,6 +4,7 @@ import { hashPassword, comparePassword } from '../utils/password';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 import { LoginDto, RegisterDto, ChangePasswordDto, JWTPayload } from '../types';
 import { ApiError } from '../middleware/errorHandler';
+import crypto from 'crypto';
 
 /**
  * Service d'authentification
@@ -250,6 +251,104 @@ export class AuthService {
     });
 
     return { message: 'Mot de passe changé avec succès' };
+  }
+
+  /**
+   * Demander la réinitialisation du mot de passe
+   */
+  async forgotPassword(email: string) {
+    // Rechercher l'utilisateur par email
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    // Ne pas révéler si l'utilisateur existe ou non (sécurité)
+    if (!user) {
+      return;
+    }
+
+    // Générer un token aléatoire sécurisé
+    const token = crypto.randomBytes(32).toString('hex');
+
+    // Définir l'expiration à 1 heure
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1);
+
+    // Supprimer les anciens tokens non utilisés de cet utilisateur
+    await prisma.passwordReset.deleteMany({
+      where: {
+        userId: user.id,
+        used: false,
+      },
+    });
+
+    // Créer le token de réinitialisation
+    await prisma.passwordReset.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
+
+    // TODO: Envoyer un email avec le token
+    // Pour l'instant, le token sera juste stocké en base
+    // Dans un vrai système, on enverrait un email avec un lien comme:
+    // https://app.example.com/reset-password?token=abc123
+
+    console.log(`Token de réinitialisation généré pour ${email}: ${token}`);
+    console.log(`Lien de réinitialisation: http://localhost:3000/reset-password?token=${token}`);
+
+    return;
+  }
+
+  /**
+   * Réinitialiser le mot de passe avec un token
+   */
+  async resetPassword(token: string, newPassword: string) {
+    // Rechercher le token de réinitialisation
+    const resetToken = await prisma.passwordReset.findUnique({
+      where: { token },
+    });
+
+    if (!resetToken) {
+      throw new ApiError(400, 'Token invalide ou expiré');
+    }
+
+    // Vérifier si le token n'est pas expiré
+    if (resetToken.expiresAt < new Date()) {
+      throw new ApiError(400, 'Token expiré');
+    }
+
+    // Vérifier si le token n'a pas déjà été utilisé
+    if (resetToken.used) {
+      throw new ApiError(400, 'Token déjà utilisé');
+    }
+
+    // Hasher le nouveau mot de passe
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Mettre à jour le mot de passe
+    await prisma.user.update({
+      where: { id: resetToken.userId },
+      data: {
+        password: hashedPassword,
+        mustChangePassword: false,
+      },
+    });
+
+    // Marquer le token comme utilisé
+    await prisma.passwordReset.update({
+      where: { id: resetToken.id },
+      data: { used: true },
+    });
+
+    // Supprimer toutes les sessions actives (forcer reconnexion)
+    await prisma.session.deleteMany({
+      where: { userId: resetToken.userId },
+    });
+
+    return;
   }
 }
 

@@ -62,4 +62,16 @@ router.post(
  */
 router.get('/me', authenticate, authController.getMe.bind(authController));
 
+/**
+ * POST /api/auth/forgot-password
+ * Demander la réinitialisation du mot de passe
+ */
+router.post('/forgot-password', authController.forgotPassword.bind(authController));
+
+/**
+ * POST /api/auth/reset-password
+ * Réinitialiser le mot de passe avec un token
+ */
+router.post('/reset-password', authController.resetPassword.bind(authController));
+
 export default router;
