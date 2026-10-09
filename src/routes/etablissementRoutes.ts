@@ -53,4 +53,26 @@ router.post(
   etablissementController.createAvisRsai
 );
 
+/**
+ * GET /api/etablissements/:id/securite
+ * Récupérer les paramètres de sécurité (géolocalisation, horaires, IPs)
+ */
+router.get(
+  '/:id/securite',
+  authenticate,
+  authorize(UserRole.creche, UserRole.superadmin, UserRole.developpeur),
+  etablissementController.getSecurite
+);
+
+/**
+ * PUT /api/etablissements/:id/securite
+ * Mettre à jour les paramètres de sécurité
+ */
+router.put(
+  '/:id/securite',
+  authenticate,
+  authorize(UserRole.creche, UserRole.superadmin, UserRole.developpeur),
+  etablissementController.updateSecurite
+);
+
 export default router;

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { etablissementService } from '../services/etablissementService';
+import prisma from '../config/prisma';
 
 /**
  * Contrôleur pour la gestion des établissements
@@ -186,6 +187,90 @@ export const etablissementController = {
       res.status(201).json({ success: true, data: { _id: 'temp', noteMoyenne: 0, nbAvis: 0 } });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  /**
+   * GET /api/etablissements/:id/securite
+   * Récupérer les paramètres de sécurité
+   */
+  async getSecurite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      let securite = await prisma.etablissementSecurite.findUnique({
+        where: { etablissementId: id },
+      });
+
+      // Si pas de config, créer une config par défaut
+      if (!securite) {
+        securite = await prisma.etablissementSecurite.create({
+          data: {
+            etablissementId: id,
+            rayonMetres: 300,
+            blocageHorsZone: false,
+            plagesHoraires: [
+              { jour: 1, debut: '07:30', fin: '18:30' },
+              { jour: 2, debut: '07:30', fin: '18:30' },
+              { jour: 3, debut: '07:30', fin: '18:30' },
+              { jour: 4, debut: '07:30', fin: '18:30' },
+              { jour: 5, debut: '07:30', fin: '18:30' },
+            ],
+            ipsAutorisees: [],
+          },
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          etablissementId: securite.etablissementId,
+          latitude: securite.latitude,
+          longitude: securite.longitude,
+          rayonMetres: securite.rayonMetres,
+          blocageHorsZone: securite.blocageHorsZone,
+          plagesHoraires: securite.plagesHoraires,
+          ipsAutorisees: securite.ipsAutorisees,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * PUT /api/etablissements/:id/securite
+   * Mettre à jour les paramètres de sécurité
+   */
+  async updateSecurite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { latitude, longitude, rayonMetres, blocageHorsZone, plagesHoraires, ipsAutorisees } = req.body;
+
+      const data: any = {};
+      if (latitude !== undefined) data.latitude = latitude;
+      if (longitude !== undefined) data.longitude = longitude;
+      if (rayonMetres !== undefined) data.rayonMetres = rayonMetres;
+      if (blocageHorsZone !== undefined) data.blocageHorsZone = blocageHorsZone;
+      if (plagesHoraires !== undefined) data.plagesHoraires = plagesHoraires;
+      if (ipsAutorisees !== undefined) data.ipsAutorisees = ipsAutorisees;
+
+      const securite = await prisma.etablissementSecurite.upsert({
+        where: { etablissementId: id },
+        update: data,
+        create: {
+          etablissementId: id,
+          ...data,
+        },
+      });
+
+      res.status(200).json({
+        success: true,
+        data: securite,
+        message: 'Paramètres de sécurité mis à jour',
+      });
+    } catch (error) {
+      next(error);
     }
   },
 };

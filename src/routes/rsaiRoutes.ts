@@ -31,6 +31,16 @@ router.get(
 );
 
 /**
+ * GET /api/rsai/:rsaiId
+ * Fiche détaillée d'une RSAI (affectations, avis, stats)
+ */
+router.get(
+  '/:rsaiId',
+  authorize(UserRole.creche, UserRole.rsai, UserRole.superadmin, UserRole.developpeur),
+  rsaiController.getRsaiById
+);
+
+/**
  * POST /api/rsai/:rsaiId/avis
  * La crèche note une RSAI (1 à 5) avec un commentaire
  */

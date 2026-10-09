@@ -45,8 +45,15 @@ export const tarifService = {
   /**
    * Récupérer tous les tarifs
    */
-  async getAllTarifs() {
+  async getAllTarifs(roleCible?: string) {
+    const where: any = {};
+
+    if (roleCible) {
+      where.roleCible = roleCible;
+    }
+
     const tarifs = await prisma.tarif.findMany({
+      where,
       orderBy: { prixMensuel: 'asc' },
     });
 

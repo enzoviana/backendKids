@@ -22,6 +22,16 @@ router.get(
 );
 
 /**
+ * GET /api/medecins/:medecinId
+ * Fiche détaillée d'un médecin (enfants suivis, ordonnances récentes)
+ */
+router.get(
+  '/:medecinId',
+  authorize(UserRole.creche, UserRole.medecin, UserRole.superadmin, UserRole.developpeur),
+  medecinController.getMedecinById
+);
+
+/**
  * GET /api/medecins/:medecinId/stats
  * Statistiques du médecin (patients, consultations, ordonnances par mois)
  */

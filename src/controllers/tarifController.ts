@@ -46,7 +46,9 @@ export const tarifController = {
 
   async getAllTarifs(req: Request, res: Response) {
     try {
-      const tarifs = await tarifService.getAllTarifs();
+      const { roleCible } = req.query;
+
+      const tarifs = await tarifService.getAllTarifs(roleCible as string);
 
       res.status(200).json({ success: true, data: tarifs });
     } catch (error: any) {

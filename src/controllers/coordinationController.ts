@@ -42,6 +42,7 @@ export class CoordinationController {
   /**
    * GET /api/coordination/affectations
    * Affectations RSAI : admin toutes, crèche les siennes, RSAI ses affectations
+   * Avec pagination, filtres (année, statut, rsaiId, crecheId) et stats
    */
   async getAffectations(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -50,7 +51,14 @@ export class CoordinationController {
         return;
       }
 
-      const { statut } = req.query;
+      const {
+        statut,
+        annee,
+        rsaiId,
+        crecheId,
+        page = '1',
+        limit = '50',
+      } = req.query;
 
       const where: any = {};
 
@@ -62,19 +70,66 @@ export class CoordinationController {
       }
       // superadmin et developpeur voient tout
 
-      if (statut) {
-        where.statut = statut;
+      // Filtres additionnels
+      if (statut) where.statut = statut;
+      if (rsaiId) where.rsaiId = rsaiId;
+      if (crecheId) where.crecheId = crecheId;
+
+      // Filtre par année
+      if (annee) {
+        const year = parseInt(annee as string);
+        where.dateDebut = {
+          gte: new Date(`${year}-01-01`),
+          lte: new Date(`${year}-12-31`),
+        };
       }
 
+      // Pagination
+      const pageNum = parseInt(page as string);
+      const limitNum = parseInt(limit as string);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Récupérer les affectations paginées
       const affectations = await prisma.affectationRsai.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { dateDebut: 'desc' },
+        skip,
+        take: limitNum,
       });
+
+      // Compter le total
+      const total = await prisma.affectationRsai.count({ where });
+
+      // Calculer les stats
+      const statsData = {
+        rsaiActives: await prisma.affectationRsai.groupBy({
+          by: ['rsaiId'],
+          where: { statut: 'active' },
+        }),
+        crechesCouvertes: await prisma.affectationRsai.groupBy({
+          by: ['etablissementId'],
+          where: { statut: 'active' },
+        }),
+        demandesEnAttente: await prisma.demandeRsai.count({
+          where: { statut: 'en_attente' },
+        }),
+      };
+
+      const stats = {
+        rsaiActives: statsData.rsaiActives.length,
+        crechesCouvertes: statsData.crechesCouvertes.length,
+        demandesEnAttente: statsData.demandesEnAttente,
+      };
 
       res.status(200).json({
         success: true,
-        data: affectations,
-        total: affectations.length,
+        data: {
+          total,
+          page: pageNum,
+          annee: annee ? parseInt(annee as string) : null,
+          affectations,
+          stats,
+        },
       });
     } catch (error) {
       next(error);

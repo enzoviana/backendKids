@@ -3,6 +3,76 @@ import { AuthRequest } from '../types';
 import prisma from '../config/prisma';
 
 export class RsaiController {
+  /**
+   * GET /api/rsai/:rsaiId
+   * Fiche détaillée d'une RSAI
+   */
+  async getRsaiById(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { rsaiId } = req.params;
+
+      // Récupérer l'utilisateur RSAI avec son profil
+      const rsai = await prisma.user.findUnique({
+        where: { id: rsaiId, role: 'rsai' },
+        include: { profile: true },
+      });
+
+      if (!rsai) {
+        res.status(404).json({ success: false, error: 'RSAI non trouvée' });
+        return;
+      }
+
+      // Récupérer les affectations
+      const affectations = await prisma.affectationRsai.findMany({
+        where: { rsaiId },
+        orderBy: { dateDebut: 'desc' },
+      });
+
+      // Récupérer les avis
+      const avis = await prisma.avisRsai.findMany({
+        where: { rsaiId },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Calculer la note moyenne
+      const noteMoyenne = avis.length > 0
+        ? avis.reduce((sum, a) => sum + a.note, 0) / avis.length
+        : 0;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          _id: rsai.id,
+          prenom: rsai.profile?.prenom || '',
+          nom: rsai.profile?.nom || '',
+          email: rsai.email,
+          telephone: rsai.profile?.tel || '',
+          qualification: 'Infirmière Puéricultrice DE', // TODO: ajouter dans profil
+          noteMoyenne: Math.round(noteMoyenne * 10) / 10,
+          nbAvis: avis.length,
+          affectations: affectations.map(a => ({
+            _id: a.id,
+            crecheId: a.crecheId,
+            etablissementId: a.etablissementId,
+            statut: a.statut,
+            dateDebut: a.dateDebut,
+            dateFin: a.dateFin,
+            horaires: a.horaires,
+          })),
+          avis: avis.map(a => ({
+            _id: a.id,
+            auteurNom: a.auteurNom,
+            note: a.note,
+            commentaire: a.commentaire,
+            createdAt: a.createdAt,
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getRsai(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { isActive, ville } = req.query;

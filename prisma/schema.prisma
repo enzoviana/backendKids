@@ -707,3 +707,18 @@ model PasswordReset {
   @@index([token])
   @@index([expiresAt])
 }
+
+model EtablissementSecurite {
+  id                String   @id @default(uuid())
+  etablissementId   String   @unique
+  latitude          Float?
+  longitude         Float?
+  rayonMetres       Int      @default(300)
+  blocageHorsZone   Boolean  @default(false)
+  plagesHoraires    Json     // [{jour: 1-5, debut: "07:30", fin: "18:30"}]
+  ipsAutorisees     String[] // IPs autorisées
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([etablissementId])
+}

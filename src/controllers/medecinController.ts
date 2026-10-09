@@ -3,6 +3,51 @@ import { AuthRequest } from '../types';
 import prisma from '../config/prisma';
 
 export class MedecinController {
+  /**
+   * GET /api/medecins/:medecinId
+   * Fiche détaillée d'un médecin
+   */
+  async getMedecinById(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { medecinId } = req.params;
+
+      // Récupérer l'utilisateur médecin avec son profil
+      const medecin = await prisma.user.findUnique({
+        where: { id: medecinId, role: 'medecin' },
+        include: { profile: true },
+      });
+
+      if (!medecin) {
+        res.status(404).json({ success: false, error: 'Médecin non trouvé' });
+        return;
+      }
+
+      // Récupérer les ordonnances récentes
+      const ordonnances = await prisma.ordonnance.findMany({
+        where: { medecinId },
+        orderBy: { dateOrdonnance: 'desc' },
+        take: 10,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          _id: medecin.id,
+          prenom: medecin.profile?.prenom || '',
+          nom: medecin.profile?.nom || '',
+          specialite: 'Pédiatre', // TODO: ajouter dans profil
+          rpps: '10101234567', // TODO: ajouter dans profil
+          email: medecin.email,
+          telephone: medecin.profile?.tel || '',
+          enfantsSuivis: [], // TODO: implémenter relation enfant-médecin
+          ordonnancesRecentes: ordonnances.length,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getMedecins(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { isActive } = req.query;
