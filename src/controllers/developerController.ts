@@ -514,6 +514,106 @@ export class DeveloperController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/developer/database/migrate
+   * Appliquer les migrations Prisma (pour environnements sans accès shell)
+   */
+  async applyMigrations(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      // Exécuter les migrations
+      const { stdout, stderr } = await execAsync('npx prisma migrate deploy', {
+        cwd: process.cwd(),
+        env: process.env,
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Migrations appliquées avec succès',
+        output: stdout,
+        warnings: stderr || null,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: 'Erreur lors de l\'application des migrations',
+        details: error.message,
+        stdout: error.stdout,
+        stderr: error.stderr,
+      });
+    }
+  }
+
+  /**
+   * POST /api/developer/database/generate
+   * Générer le client Prisma
+   */
+  async generatePrismaClient(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      // Générer le client Prisma
+      const { stdout, stderr } = await execAsync('npx prisma generate', {
+        cwd: process.cwd(),
+        env: process.env,
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Client Prisma généré avec succès',
+        output: stdout,
+        warnings: stderr || null,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: 'Erreur lors de la génération du client Prisma',
+        details: error.message,
+        stdout: error.stdout,
+        stderr: error.stderr,
+      });
+    }
+  }
+
+  /**
+   * GET /api/developer/database/migrations/pending
+   * Vérifier les migrations en attente
+   */
+  async getPendingMigrations(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      // Vérifier le statut des migrations
+      const { stdout, stderr } = await execAsync('npx prisma migrate status', {
+        cwd: process.cwd(),
+        env: process.env,
+      });
+
+      const hasPendingMigrations = stdout.includes('pending') || stdout.includes('not yet applied');
+
+      res.status(200).json({
+        success: true,
+        hasPendingMigrations,
+        output: stdout,
+        warnings: stderr || null,
+      });
+    } catch (error: any) {
+      res.status(200).json({
+        success: true,
+        hasPendingMigrations: true,
+        output: error.stdout || '',
+        error: error.stderr || error.message,
+      });
+    }
+  }
 }
 
 export const developerController = new DeveloperController();

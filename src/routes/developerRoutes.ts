@@ -82,4 +82,34 @@ router.patch(
   developerController.updateSupportTicket
 );
 
+/**
+ * POST /api/developer/database/migrate
+ * Appliquer les migrations Prisma - Développeurs uniquement
+ */
+router.post(
+  '/database/migrate',
+  requireDeveloper,
+  developerController.applyMigrations
+);
+
+/**
+ * POST /api/developer/database/generate
+ * Générer le client Prisma - Développeurs uniquement
+ */
+router.post(
+  '/database/generate',
+  requireDeveloper,
+  developerController.generatePrismaClient
+);
+
+/**
+ * GET /api/developer/database/migrations/pending
+ * Vérifier les migrations en attente - Développeurs uniquement
+ */
+router.get(
+  '/database/migrations/pending',
+  requireDeveloper,
+  developerController.getPendingMigrations
+);
+
 export default router;

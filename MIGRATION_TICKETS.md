@@ -26,17 +26,39 @@ Avant, les tickets de support étaient mockés et ne se sauvegardaient pas en ba
 
 ⚠️ **IMPORTANT** : Vous devez lancer la migration pour créer la table en base de données.
 
-### Option 1 : Créer une nouvelle migration
+### Option 1 : Via l'API (recommandé pour Render/services sans shell)
+
+**1. Vérifier les migrations en attente**
+```bash
+GET /api/developer/database/migrations/pending
+Authorization: Bearer <token-developpeur>
+```
+
+**2. Appliquer les migrations**
+```bash
+POST /api/developer/database/migrate
+Authorization: Bearer <token-developpeur>
+```
+
+Exemple avec curl :
+```bash
+curl -X POST https://votre-api.com/api/developer/database/migrate \
+  -H "Authorization: Bearer VOTRE_TOKEN_DEVELOPPEUR" \
+  -H "Content-Type: application/json"
+```
+
+### Option 2 : Via le shell (si accès disponible)
+
+```bash
+cd /Volumes/SSD_ENZO/Crech-main/api
+npx prisma migrate deploy
+```
+
+### Option 3 : Créer une nouvelle migration (développement local)
 
 ```bash
 cd /Volumes/SSD_ENZO/Crech-main/api
 npx prisma migrate dev --name add-ticket-support
-```
-
-### Option 2 : Si la base est en production
-
-```bash
-npx prisma migrate deploy
 ```
 
 ## Utilisation
