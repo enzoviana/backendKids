@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { logError } from '../controllers/developerController';
 
 /**
  * Classe d'erreur personnalisée pour l'API
@@ -23,6 +24,9 @@ export const errorHandler = (
   next: NextFunction
 ): void => {
   console.error('❌ Erreur:', err);
+
+  // Logger l'erreur dans les métriques
+  logError(err, req.path);
 
   if (err instanceof ApiError) {
     res.status(err.statusCode).json({

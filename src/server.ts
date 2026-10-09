@@ -7,6 +7,7 @@ import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/prisma';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { metricsMiddleware } from './controllers/developerController';
 
 /**
  * Initialisation de l'application Express
@@ -19,6 +20,9 @@ const app: Application = express();
 
 // Logging des requêtes HTTP
 app.use(morgan(env.nodeEnv === 'development' ? 'dev' : 'combined'));
+
+// Métriques pour la console développeur
+app.use(metricsMiddleware);
 
 // CORS - Autoriser les requêtes depuis n'importe quelle origine
 app.use(
