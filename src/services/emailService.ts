@@ -504,6 +504,15 @@ class EmailService {
       role: string;
     }
   ): Promise<boolean> {
+    console.log('📧 EmailService.sendAccountCreated appelé:', {
+      to,
+      prenom: data.prenom,
+      nom: data.nom,
+      role: data.role,
+      mockMode: emailConfig.mockMode,
+      hasTransporter: !!this.transporter,
+    });
+
     const lien_action = emailConfig.urls.login;
 
     // Template HTML simple pour le mot de passe temporaire

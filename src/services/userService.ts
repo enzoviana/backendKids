@@ -156,6 +156,14 @@ export class UserService {
     role: UserRole;
     mustChangePassword?: boolean;
   }) {
+    console.log('🔍 UserService.createUser - Données reçues:', {
+      email: data.email,
+      prenom: data.prenom,
+      nom: data.nom,
+      role: data.role,
+      passwordProvided: !!data.password,
+    });
+
     // Vérifier si l'email existe déjà
     const existingUser = await prisma.user.findUnique({
       where: { email: data.email },
@@ -169,8 +177,12 @@ export class UserService {
     const wasPasswordProvided = !!data.password;
     const tempPassword = data.password || this.generateTempPassword();
 
+    console.log('🔑 Mot de passe:', wasPasswordProvided ? 'Fourni par l\'utilisateur' : `Généré: ${tempPassword}`);
+
     // Hasher le mot de passe
     const hashedPassword = await hashPassword(tempPassword);
+
+    console.log('🔒 Mot de passe hashé avec succès');
 
     // Créer l'utilisateur avec son profil
     const user = await prisma.user.create({
@@ -195,10 +207,19 @@ export class UserService {
     const { password, ...userWithoutPassword } = user;
 
     // Retourner l'utilisateur avec le mot de passe temporaire si généré
-    return {
+    const result = {
       ...userWithoutPassword,
       ...(wasPasswordProvided ? {} : { temporaryPassword: tempPassword }),
     };
+
+    console.log('✅ UserService.createUser - Utilisateur créé:', {
+      id: result.id,
+      email: result.email,
+      hasTemporaryPassword: !wasPasswordProvided,
+      temporaryPasswordIncluded: 'temporaryPassword' in result,
+    });
+
+    return result;
   }
 }
 

@@ -122,21 +122,33 @@ export class UserController {
    */
   async createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email, password, prenom, nom, tel, role, mustChangePassword } = req.body;
+      console.log('📝 Création d\'utilisateur - Body reçu:', JSON.stringify(req.body, null, 2));
+
+      const { email, password, prenom, nom, tel, telephone, role, mustChangePassword } = req.body;
+
+      // Support à la fois 'tel' et 'telephone'
+      const phoneNumber = tel || telephone;
+
+      console.log(`👤 Création utilisateur: ${prenom} ${nom} (${email}) - Rôle: ${role}`);
 
       const user = await userService.createUser({
         email,
         password,
         prenom,
         nom,
-        tel,
+        tel: phoneNumber,
         role,
         mustChangePassword,
       });
 
+      console.log('✅ Utilisateur créé:', user.id);
+
       // Si un mot de passe temporaire a été généré, envoyer un email
       if ((user as any).temporaryPassword) {
         const tempPassword = (user as any).temporaryPassword;
+
+        console.log('🔑 Mot de passe temporaire généré:', tempPassword);
+        console.log('📧 Tentative d\'envoi d\'email à:', email);
 
         // Envoyer l'email avec les identifiants (async, ne pas attendre)
         emailService.sendAccountCreated(email, {
@@ -145,8 +157,10 @@ export class UserController {
           email,
           temporaryPassword: tempPassword,
           role,
+        }).then(() => {
+          console.log('✅ Email envoyé avec succès à:', email);
         }).catch(err => {
-          console.error('Erreur lors de l\'envoi de l\'email de création de compte:', err);
+          console.error('❌ Erreur lors de l\'envoi de l\'email de création de compte:', err);
         });
 
         // Retourner l'utilisateur avec le mot de passe temporaire pour que le dev puisse le voir
@@ -156,6 +170,7 @@ export class UserController {
           message: 'Utilisateur créé avec succès. Un email a été envoyé avec le mot de passe temporaire.',
         });
       } else {
+        console.log('ℹ️ Mot de passe fourni par l\'utilisateur, pas d\'email envoyé');
         res.status(201).json({
           success: true,
           data: user,
@@ -163,6 +178,7 @@ export class UserController {
         });
       }
     } catch (error) {
+      console.error('❌ Erreur lors de la création d\'utilisateur:', error);
       next(error);
     }
   }
