@@ -4,6 +4,22 @@
 **Frontend Mobile :** /Volumes/SSD_ENZO/Crech-main/frontend (React Native + Expo)
 **Backend API :** /Volumes/SSD_ENZO/Crech-main/api (Node.js + Express + Prisma)
 
+> **📊 PROGRESSION : 10/44 tâches complétées (23%)**
+>
+> **✅ Complété :**
+> - 🔴 Auth frontend (API client + hooks + refresh token)
+> - 🟠 Endpoints symptômes/SOS backend
+> - 🟡 Tous les hooks frontend (6/6)
+> - 🟢 Error handler & utils
+>
+> **⏳ En attente :**
+> - Écrans login/register mobile (UI)
+> - Endpoints RSAI (trends, geofence, checklists)
+> - Tests & validation
+> - Migration AppStore → React Query
+>
+> **📝 Rapport détaillé :** Voir [PROGRESSION_APP_TO_BACKEND.md](./PROGRESSION_APP_TO_BACKEND.md)
+
 ---
 
 ## 📊 RÉSUMÉ EXÉCUTIF
