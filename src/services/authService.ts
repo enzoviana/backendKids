@@ -85,10 +85,17 @@ export class AuthService {
   }
 
   /**
-   * Inscription d'un nouvel utilisateur (parent)
+   * Inscription d'un nouvel utilisateur (UNIQUEMENT PARENTS)
+   * ⚠️ Les autres rôles (crèche, RSAI, admin) doivent être invités par l'admin
    */
   async register(data: RegisterDto) {
     const { email, password, prenom, nom, tel, role } = data;
+
+    // ⚠️ SÉCURITÉ: L'inscription publique est UNIQUEMENT pour les parents
+    // Les autres rôles (crèche, RSAI, admin) doivent être invités par l'admin
+    if (role && role !== UserRole.parent) {
+      throw new ApiError(403, 'L\'inscription publique est réservée aux parents. Les autres rôles doivent être invités par un administrateur.');
+    }
 
     // Vérifier si l'email existe déjà
     const existingUser = await prisma.user.findUnique({
@@ -102,12 +109,12 @@ export class AuthService {
     // Hasher le mot de passe
     const hashedPassword = await hashPassword(password);
 
-    // Créer l'utilisateur avec son profil
+    // Créer l'utilisateur avec son profil (TOUJOURS en tant que parent)
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
-        role: role || UserRole.parent,
+        role: UserRole.parent, // Forcé à "parent" uniquement
         profile: {
           create: {
             prenom,

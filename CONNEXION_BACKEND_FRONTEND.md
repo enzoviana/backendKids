@@ -179,6 +179,68 @@ Les hooks suivants sont **créés et fonctionnels** mais les écrans utilisent e
 
 ---
 
+## 🔍 AUDIT COMPLET - ÉTAPE 2
+
+**📋 Un audit exhaustif a été effectué pour identifier toutes les pages qui utilisent encore des données mock.**
+
+**➡️ Voir le fichier complet : [AUDIT_MIGRATION_FRONTEND_BACKEND.md](./AUDIT_MIGRATION_FRONTEND_BACKEND.md)**
+
+### Résumé de l'audit
+
+**14 pages/composants à migrer identifiés :**
+
+| Catégorie | Pages | Status |
+|-----------|-------|--------|
+| **Espace Parent** | 4 pages | [ ] À migrer |
+| - Dashboard | `(parent)/index.tsx` | [ ] |
+| - Diagnostic IA | `(parent)/symptom.tsx` | [ ] |
+| - Notifications | `(parent)/notifications.tsx` | [ ] |
+| - Dossier médical | `(parent)/history.tsx` | [ ] |
+| **Espace Crèche** | 4 pages | [ ] À migrer |
+| - Dashboard | `(creche)/index.tsx` | [ ] |
+| - Assistant IA | `(creche)/assistant.tsx` | [ ] |
+| - Quotidien | `(creche)/quotidien.tsx` | [ ] |
+| - Prescriptions | `(creche)/prescriptions.tsx` | [ ] |
+| **Espace RSAI** | 4 pages | [ ] À migrer |
+| - Accueil | `(rsai)/index.tsx` | [ ] |
+| - Avis | `(rsai)/avis.tsx` | [ ] |
+| - Enfants | `(rsai)/enfants.tsx` | [ ] |
+| - Registres | `(rsai)/registres.tsx` | [ ] |
+| **Dossier enfant** | 1 page | [ ] À migrer |
+| - Dossier complet | `child/[id].tsx` | [ ] |
+| **Composants** | 1 composant | [ ] À migrer |
+| - Bouton SOS | `SOSButton.tsx` | [ ] |
+
+**Total : 14/14 pages à migrer (0% complété)**
+
+### Ordre de priorité ÉTAPE 2
+
+#### 🔴 CRITIQUE (à faire en premier)
+1. [ ] Parent Dashboard (`(parent)/index.tsx`)
+2. [ ] SOS Button (`SOSButton.tsx`)
+3. [ ] Notifications (`(parent)/notifications.tsx`)
+
+#### 🟠 HAUTE PRIORITÉ
+4. [ ] Diagnostic IA (`(parent)/symptom.tsx`)
+5. [ ] Creche Dashboard (`(creche)/index.tsx`)
+6. [ ] Dossier enfant (`child/[id].tsx`)
+
+#### 🟡 MOYENNE PRIORITÉ
+7. [ ] Assistant IA (`(creche)/assistant.tsx`)
+8. [ ] Quotidien (`(creche)/quotidien.tsx`)
+9. [ ] Prescriptions (`(creche)/prescriptions.tsx`)
+10. [ ] History (`(parent)/history.tsx`)
+
+#### 🟢 BASSE PRIORITÉ
+11. [ ] RSAI Accueil (`(rsai)/index.tsx`)
+12. [ ] RSAI Avis (`(rsai)/avis.tsx`)
+13. [ ] RSAI Enfants (`(rsai)/enfants.tsx`)
+14. [ ] RSAI Registres (`(rsai)/registres.tsx`)
+
+**📖 Détails complets de chaque page :** Voir [AUDIT_MIGRATION_FRONTEND_BACKEND.md](./AUDIT_MIGRATION_FRONTEND_BACKEND.md)
+
+---
+
 ## 🔧 PROCHAINES ÉTAPES
 
 ### Étape 1 : Migrer AppStore vers React Query
@@ -367,13 +429,24 @@ curl -X POST http://localhost:3000/api/auth/login \
 ## ⚠️ NOTES IMPORTANTES
 
 ### Backend URL
+
+**✅ Configuration actuelle (Production Render) :**
 ```typescript
 // .env dans /frontend
-EXPO_PUBLIC_BACKEND_URL=https://kidsmed-ia.preview.emergentagent.com
+EXPO_PUBLIC_BACKEND_URL=https://backendkids.onrender.com
+```
 
-// Pour développement local, changer en :
+**Status API :** ✅ En ligne et fonctionnelle
+- URL : https://backendkids.onrender.com
+- Health : https://backendkids.onrender.com/api/health
+- Version : 1.0.0
+
+**Pour développement local :**
+```env
+# Développement local
 EXPO_PUBLIC_BACKEND_URL=http://localhost:3000
-// OU (si device physique sur même réseau) :
+
+# Device physique sur même réseau WiFi
 EXPO_PUBLIC_BACKEND_URL=http://192.168.X.X:3000
 ```
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { userController } from '../controllers/userController';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, requireUserManagement } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
 import { updateProfileValidation } from '../utils/validators';
 import { upload } from '../middleware/upload';
@@ -30,28 +30,28 @@ router.put(
 );
 
 /**
- * Routes admin uniquement
+ * Routes de gestion des utilisateurs (superadmin + développeur uniquement)
  */
 
 /**
  * GET /api/users
- * Récupérer tous les utilisateurs (admin seulement)
+ * Récupérer tous les utilisateurs (superadmin/développeur seulement)
  */
-router.get('/', requireAdmin, userController.getAllUsers.bind(userController));
+router.get('/', requireUserManagement, userController.getAllUsers.bind(userController));
 
 /**
  * POST /api/users
- * Créer un nouvel utilisateur (admin seulement)
+ * Créer un nouvel utilisateur (superadmin/développeur seulement)
  */
-router.post('/', requireAdmin, userController.createUser.bind(userController));
+router.post('/', requireUserManagement, userController.createUser.bind(userController));
 
 /**
  * PUT /api/users/:userId/profile
- * Mettre à jour le profil d'un autre utilisateur (admin seulement)
+ * Mettre à jour le profil d'un autre utilisateur (superadmin/développeur seulement)
  */
 router.put(
   '/:userId/profile',
-  requireAdmin,
+  requireUserManagement,
   updateProfileValidation,
   validateRequest,
   userController.updateUserProfile.bind(userController)
@@ -59,21 +59,21 @@ router.put(
 
 /**
  * PATCH /api/users/:userId/status
- * Activer/Désactiver un utilisateur (admin seulement)
+ * Activer/Désactiver un utilisateur (superadmin/développeur seulement)
  */
 router.patch(
   '/:userId/status',
-  requireAdmin,
+  requireUserManagement,
   userController.toggleUserStatus.bind(userController)
 );
 
 /**
  * DELETE /api/users/:userId
- * Supprimer un utilisateur (admin seulement)
+ * Supprimer un utilisateur (superadmin/développeur seulement)
  */
 router.delete(
   '/:userId',
-  requireAdmin,
+  requireUserManagement,
   userController.deleteUser.bind(userController)
 );
 

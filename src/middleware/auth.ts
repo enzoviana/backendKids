@@ -97,3 +97,12 @@ export const requireProfessional = authorize(
   UserRole.creche,
   UserRole.auxiliaire
 );
+
+/**
+ * Middleware pour la gestion des utilisateurs
+ * Réservé aux super admins et développeurs uniquement
+ */
+export const requireUserManagement = authorize(
+  UserRole.superadmin,
+  UserRole.developpeur
+);
