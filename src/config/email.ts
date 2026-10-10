@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
  * Configuration du service d'envoi d'emails
  */
 export const emailConfig = {
-  provider: process.env.EMAIL_PROVIDER || 'smtp',
+  provider: process.env.EMAIL_PROVIDER || 'sendgrid', // SendGrid par défaut (évite ENETUNREACH)
   mockMode: process.env.EMAIL_MOCK_MODE === 'true',
 
   // Configuration SendGrid (Recommandé pour production)

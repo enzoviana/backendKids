@@ -11,15 +11,32 @@ class EmailService {
   private useSendGrid: boolean = false;
 
   constructor() {
+    // Mode MOCK activé explicitement
+    if (emailConfig.mockMode) {
+      console.log('📧 Mode MOCK activé explicitement - Les emails seront affichés dans la console');
+      return;
+    }
+
     // Configuration du provider d'emails
     if (emailConfig.provider === 'sendgrid') {
-      this.useSendGrid = verifySendGridConfig();
-      if (this.useSendGrid) {
+      // Tenter de configurer SendGrid
+      if (emailConfig.sendgrid.apiKey) {
+        this.useSendGrid = true;
         sgMail.setApiKey(emailConfig.sendgrid.apiKey);
         console.log('✅ SendGrid initialisé - Les emails seront envoyés via SendGrid API');
+      } else {
+        // Pas d'API Key SendGrid → basculer en mode MOCK automatiquement
+        console.warn('⚠️ SendGrid configuré comme provider mais SENDGRID_API_KEY manquante');
+        console.warn('📧 Basculement automatique en MODE MOCK - Les emails seront affichés dans la console');
+        console.warn('💡 Pour utiliser SendGrid: Configurez SENDGRID_API_KEY dans votre .env');
       }
-    } else {
+    } else if (emailConfig.provider === 'smtp') {
+      // Utiliser SMTP uniquement si explicitement demandé
+      console.log('📮 SMTP configuré comme provider (déconseillé sur Render)');
       this.transporter = createSMTPTransporter();
+    } else {
+      console.warn(`⚠️ Provider email inconnu: ${emailConfig.provider}`);
+      console.warn('📧 Basculement automatique en MODE MOCK');
     }
   }
 
@@ -28,8 +45,8 @@ class EmailService {
    */
   private async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
     try {
-      // Mode MOCK : afficher dans la console
-      if (emailConfig.mockMode) {
+      // Mode MOCK : afficher dans la console (explicite ou auto si pas de provider)
+      if (emailConfig.mockMode || (!this.useSendGrid && !this.transporter)) {
         console.log('\n📧 ========== EMAIL MOCK ==========');
         console.log(`À: ${to}`);
         console.log(`Sujet: ${subject}`);
@@ -57,21 +74,22 @@ class EmailService {
       }
 
       // Mode SMTP : envoyer via transporteur SMTP
-      if (!this.transporter) {
-        console.error('❌ Aucun transporteur SMTP configuré');
-        console.log('💡 Suggestion: Configurez SMTP ou activez EMAIL_MOCK_MODE=true');
-        return false;
+      if (this.transporter) {
+        const info = await this.transporter.sendMail({
+          from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
+          to,
+          subject,
+          html,
+        });
+
+        console.log(`✅ Email envoyé via SMTP à ${to} (ID: ${info.messageId})`);
+        return true;
       }
 
-      const info = await this.transporter.sendMail({
-        from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
-        to,
-        subject,
-        html,
-      });
-
-      console.log(`✅ Email envoyé via SMTP à ${to} (ID: ${info.messageId})`);
-      return true;
+      // Fallback si aucun provider configuré
+      console.error('❌ Aucun provider email configuré');
+      console.log('💡 Suggestion: Configurez SENDGRID_API_KEY ou activez EMAIL_MOCK_MODE=true');
+      return false;
     } catch (error: any) {
       // Log détaillé mais ne pas crasher
       console.error(`❌ Erreur lors de l'envoi de l'email à ${to}:`);
