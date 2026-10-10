@@ -124,6 +124,26 @@ router.post(
 );
 
 /**
+ * POST /api/enfants/:id/symptom
+ * Signaler des symptômes (parent, crèche, médecin)
+ */
+router.post(
+  '/:id/symptom',
+  authorize(UserRole.parent, UserRole.creche, UserRole.medecin),
+  enfantController.reportSymptom.bind(enfantController)
+);
+
+/**
+ * POST /api/enfants/:id/sos
+ * Déclencher une alerte SOS/urgence
+ */
+router.post(
+  '/:id/sos',
+  authorize(UserRole.parent, UserRole.creche, UserRole.medecin, UserRole.rsai),
+  enfantController.triggerSOS.bind(enfantController)
+);
+
+/**
  * Routes vaccins (alias pour compatibilité frontend)
  * GET /api/enfants/:id/vaccins
  * POST /api/enfants/:id/vaccins

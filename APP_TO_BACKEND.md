@@ -349,7 +349,7 @@ if (response.inside) {
 
 #### 🔴 TÂCHE 1 : Créer le service d'authentification frontend
 
-- [ ] **Créer `/frontend/src/api/client.ts`**
+- [x] **Créer `/frontend/src/api/client.ts`** ✅
   ```typescript
   import * as SecureStore from 'expo-secure-store';
 
@@ -390,7 +390,7 @@ if (response.inside) {
   };
   ```
 
-- [ ] **Créer `/frontend/src/hooks/useAuth.ts`**
+- [x] **Créer `/frontend/src/hooks/useAuth.ts`** ✅
   ```typescript
   import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
   import * as SecureStore from 'expo-secure-store';
@@ -454,7 +454,7 @@ if (response.inside) {
 
 #### 🔴 TÂCHE 3 : Gérer le refresh token automatique
 
-- [ ] **Ajouter interceptor dans `/frontend/src/api/client.ts`**
+- [x] **Ajouter interceptor dans `/frontend/src/api/client.ts`** ✅
   ```typescript
   // Si réponse 401, tenter refresh
   if (response.status === 401) {
@@ -498,7 +498,7 @@ if (response.inside) {
 
 **Objectif :** Permettre au parent de signaler des symptômes
 
-- [ ] **Créer méthode dans `/api/src/controllers/enfantController.ts`**
+- [x] **Créer méthode dans `/api/src/controllers/enfantController.ts`** ✅
   ```typescript
   async reportSymptom(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -560,7 +560,7 @@ if (response.inside) {
   }
   ```
 
-- [ ] **Ajouter route dans `/api/src/routes/enfantRoutes.ts`**
+- [x] **Ajouter route dans `/api/src/routes/enfantRoutes.ts`** ✅
   ```typescript
   router.post(
     '/:id/symptom',
@@ -569,17 +569,17 @@ if (response.inside) {
   );
   ```
 
-- [ ] **Tester l'endpoint**
+- [ ] **Tester l'endpoint** (Tests manuels requis)
   - [ ] Appel avec parent autorisé → 201
   - [ ] Appel avec parent non autorisé → 403
-  - [ ] Notification envoyée à la crèche
-  - [ ] Alerte créée en base
+  - [ ] Notification envoyée à la crèche (TODO backend)
+  - [ ] Alerte créée en base (TODO backend)
 
 #### 🟠 TÂCHE 6 : POST /api/enfants/:id/sos
 
 **Objectif :** Déclencher une alerte SOS/urgence
 
-- [ ] **Créer méthode dans `/api/src/controllers/enfantController.ts`**
+- [x] **Créer méthode dans `/api/src/controllers/enfantController.ts`** ✅
   ```typescript
   async triggerSOS(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -646,7 +646,7 @@ if (response.inside) {
   }
   ```
 
-- [ ] **Ajouter route dans `/api/src/routes/enfantRoutes.ts`**
+- [x] **Ajouter route dans `/api/src/routes/enfantRoutes.ts`** ✅
   ```typescript
   router.post(
     '/:id/sos',
@@ -655,11 +655,11 @@ if (response.inside) {
   );
   ```
 
-- [ ] **Tester l'endpoint**
-  - [ ] Appel parent → Notification à crèche + médecin + RSAI
-  - [ ] Appel crèche → Notification à parents + médecin + RSAI
-  - [ ] Log de sécurité créé
-  - [ ] Alerte de type "sos" créée
+- [ ] **Tester l'endpoint** (Tests manuels requis)
+  - [ ] Appel parent → Notification à crèche + médecin + RSAI (TODO backend)
+  - [ ] Appel crèche → Notification à parents + médecin + RSAI (TODO backend)
+  - [ ] Log de sécurité créé (TODO backend)
+  - [ ] Alerte de type "sos" créée (TODO backend)
 
 ### C. Endpoints Crèche (2 endpoints manquants)
 
@@ -1192,7 +1192,7 @@ if (response.inside) {
 
 #### 🟡 TÂCHE 25 : Hooks enfants
 
-- [ ] **Créer `/frontend/src/hooks/useEnfants.ts`**
+- [x] **Créer `/frontend/src/hooks/useEnfants.ts`** ✅
   ```typescript
   import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
   import { apiClient } from '../api/client';
@@ -1253,7 +1253,7 @@ if (response.inside) {
 
 #### 🟡 TÂCHE 26 : Hooks diagnostics
 
-- [ ] **Créer `/frontend/src/hooks/useDiagnostics.ts`**
+- [x] **Créer `/frontend/src/hooks/useDiagnostics.ts`** ✅
   ```typescript
   import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
   import { apiClient } from '../api/client';
@@ -1280,7 +1280,7 @@ if (response.inside) {
 
 #### 🟡 TÂCHE 27 : Hooks notifications
 
-- [ ] **Créer `/frontend/src/hooks/useNotifications.ts`**
+- [x] **Créer `/frontend/src/hooks/useNotifications.ts`** ✅
   ```typescript
   import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
   import { apiClient } from '../api/client';
@@ -1308,7 +1308,7 @@ if (response.inside) {
 
 #### 🟡 TÂCHE 28 : Hooks RSAI
 
-- [ ] **Créer `/frontend/src/hooks/useRsai.ts`**
+- [x] **Créer `/frontend/src/hooks/useRsai.ts`** ✅
   ```typescript
   import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
   import { apiClient } from '../api/client';
@@ -1359,7 +1359,7 @@ if (response.inside) {
 
 #### 🟡 TÂCHE 29 : Hooks trends
 
-- [ ] **Créer `/frontend/src/hooks/useTrends.ts`**
+- [x] **Créer `/frontend/src/hooks/useTrends.ts`** ✅
   ```typescript
   import { useQuery } from '@tanstack/react-query';
   import { apiClient } from '../api/client';
@@ -1439,7 +1439,7 @@ if (response.inside) {
 
 #### 🟢 TÂCHE 36 : Gérer les erreurs API
 
-- [ ] **Créer `/frontend/src/utils/errorHandler.ts`**
+- [x] **Créer `/frontend/src/utils/errorHandler.ts`** ✅
   ```typescript
   export const handleApiError = (error: any) => {
     if (error.response) {

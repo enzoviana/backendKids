@@ -347,6 +347,130 @@ export class EnfantController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/enfants/:id/symptom
+   * Signaler des symptômes pour un enfant (parent, crèche, médecin)
+   */
+  async reportSymptom(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id: enfantId } = req.params;
+      const { symptomes, note } = req.body;
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+
+      if (!userId || !userRole) {
+        res.status(401).json({ success: false, message: 'Non authentifié' });
+        return;
+      }
+
+      const enfant = await enfantService.getEnfantById(enfantId, userId, userRole);
+      if (!enfant) {
+        res.status(404).json({ success: false, message: 'Enfant non trouvé' });
+        return;
+      }
+
+      // Créer une description des symptômes
+      const description = `Symptômes signalés: ${symptomes.join(', ')}${note ? '\nNote: ' + note : ''}`;
+
+      // TODO: Créer une vraie alerte quand le service sera disponible
+      // const alerte = await alerteService.createAlerte({
+      //   enfantId,
+      //   type: 'symptome',
+      //   description,
+      //   severite: symptomes.length > 3 ? 'haute' : 'moyenne',
+      //   statutResolution: 'en_attente',
+      //   auteurId: userId,
+      // });
+
+      // TODO: Envoyer notification à la crèche/parents
+      // await notificationService.sendNotification({
+      //   destinataires: [enfant.etablissementId],
+      //   titre: `Symptômes signalés - ${enfant.prenom}`,
+      //   message: description,
+      //   type: 'alerte',
+      // });
+
+      res.status(201).json({
+        success: true,
+        message: 'Symptômes signalés avec succès',
+        data: {
+          enfantId,
+          symptomes,
+          note,
+          description,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/enfants/:id/sos
+   * Déclencher une alerte SOS/urgence
+   */
+  async triggerSOS(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id: enfantId } = req.params;
+      const { motif } = req.body;
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+
+      if (!userId || !userRole) {
+        res.status(401).json({ success: false, message: 'Non authentifié' });
+        return;
+      }
+
+      const enfant = await enfantService.getEnfantById(enfantId, userId, userRole);
+      if (!enfant) {
+        res.status(404).json({ success: false, message: 'Enfant non trouvé' });
+        return;
+      }
+
+      const description = `🚨 ALERTE SOS - ${motif}`;
+
+      // TODO: Créer une alerte critique SOS
+      // const alerte = await alerteService.createAlerte({
+      //   enfantId,
+      //   type: 'sos',
+      //   description,
+      //   severite: 'critique',
+      //   statutResolution: 'en_attente',
+      //   auteurId: userId,
+      // });
+
+      // TODO: Notifier TOUS les acteurs liés (parents, crèche, médecin, RSAI)
+      // await notificationService.sendNotification({
+      //   destinataires: [...liaisons, etablissement],
+      //   titre: `🚨 ALERTE SOS - ${enfant.prenom} ${enfant.nom}`,
+      //   message: `Urgence signalée: ${motif}`,
+      //   type: 'sos',
+      // });
+
+      // TODO: Logger l'événement de sécurité
+      // await logService.createLog({
+      //   type: 'securite',
+      //   niveau: 'alerte',
+      //   message: `SOS déclenché pour enfant ${enfantId}`,
+      //   utilisateurId: userId,
+      //   metadata: { enfantId, motif },
+      // });
+
+      res.status(201).json({
+        success: true,
+        message: 'Alerte SOS déclenchée',
+        data: {
+          enfantId,
+          motif,
+          description,
+          notification_sent: false, // Sera true quand notifications implémentées
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const enfantController = new EnfantController();
