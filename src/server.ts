@@ -3,12 +3,20 @@ import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import dns from 'dns';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/prisma';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { metricsMiddleware } from './controllers/developerController';
 import { startAllJobs, stopAllJobs } from './jobs';
+
+/**
+ * CONFIGURATION RÉSEAU GLOBALE
+ * Force l'IPv4 pour éviter les erreurs ENETUNREACH sur Render
+ */
+dns.setDefaultResultOrder('ipv4first');
+console.log('🌐 Configuration DNS: IPv4 prioritaire (évite ENETUNREACH)');
 
 /**
  * Initialisation de l'application Express

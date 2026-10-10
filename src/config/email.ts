@@ -68,15 +68,37 @@ export const createSMTPTransporter = () => {
       host: emailConfig.smtp.host,
       port: emailConfig.smtp.port,
       secure: emailConfig.smtp.secure,
-      family: 4, 
-    } as any, {
+      family: 4, // Force IPv4 pour éviter ENETUNREACH sur Render
+      connectionTimeout: 10000, // 10 secondes timeout
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
       auth: {
         user: emailConfig.smtp.auth.user,
         pass: emailConfig.smtp.auth.pass,
       },
+      // Options supplémentaires pour Render
+      tls: {
+        rejectUnauthorized: false, // Accepter les certificats auto-signés
+        minVersion: 'TLSv1.2',
+      },
+      // Pool de connexions pour améliorer les performances
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 10,
     });
 
-    console.log(`✅ Transporteur SMTP configuré (${emailConfig.smtp.host}:${emailConfig.smtp.port})`);
+    console.log(`✅ Transporteur SMTP configuré (${emailConfig.smtp.host}:${emailConfig.smtp.port}) - IPv4 forcé`);
+
+    // Vérifier la connexion au démarrage
+    transporter.verify((error, success) => {
+      if (error) {
+        console.error('❌ Erreur de vérification SMTP:', error.message);
+        console.log('💡 Conseil: Activez EMAIL_MOCK_MODE=true si vous ne pouvez pas configurer SMTP');
+      } else {
+        console.log('✅ Serveur SMTP prêt à envoyer des emails');
+      }
+    });
+
     return transporter;
   } catch (error) {
     console.error('❌ Erreur lors de la création du transporteur SMTP:', error);
