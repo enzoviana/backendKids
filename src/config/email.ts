@@ -68,6 +68,8 @@ export const createSMTPTransporter = () => {
       host: emailConfig.smtp.host,
       port: emailConfig.smtp.port,
       secure: emailConfig.smtp.secure,
+      family: 4, 
+    } as any, {
       auth: {
         user: emailConfig.smtp.auth.user,
         pass: emailConfig.smtp.auth.pass,

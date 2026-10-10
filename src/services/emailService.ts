@@ -28,7 +28,7 @@ class EmailService {
         return true;
       }
 
-      // Mode RÉEL : envoyer via SMTP
+      // Mode RÉEL : envoyer via SMTP avec timeout de 10 secondes
       const info = await this.transporter.sendMail({
         from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
         to,
@@ -38,8 +38,19 @@ class EmailService {
 
       console.log(`✅ Email envoyé à ${to} (ID: ${info.messageId})`);
       return true;
-    } catch (error) {
-      console.error(`❌ Erreur lors de l'envoi de l'email à ${to}:`, error);
+    } catch (error: any) {
+      // Log détaillé mais ne pas crasher
+      console.error(`❌ Erreur lors de l'envoi de l'email à ${to}:`);
+      console.error(`   Code: ${error.code || 'N/A'}`);
+      console.error(`   Message: ${error.message || 'Unknown error'}`);
+
+      // Suggestions selon le type d'erreur
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
+        console.error('   💡 Suggestion: Vérifiez votre configuration SMTP ou activez EMAIL_MOCK_MODE=true');
+      } else if (error.code === 'EAUTH') {
+        console.error('   💡 Suggestion: Vérifiez vos identifiants SMTP (SMTP_USER et SMTP_PASSWORD)');
+      }
+
       return false;
     }
   }
