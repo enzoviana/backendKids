@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { userService } from '../services/userService';
+import { emailService } from '../services/emailService';
 import { AuthRequest, UpdateProfileDto } from '../types';
 
 /**
@@ -133,11 +134,34 @@ export class UserController {
         mustChangePassword,
       });
 
-      res.status(201).json({
-        success: true,
-        data: user,
-        message: 'Utilisateur créé avec succès',
-      });
+      // Si un mot de passe temporaire a été généré, envoyer un email
+      if ((user as any).temporaryPassword) {
+        const tempPassword = (user as any).temporaryPassword;
+
+        // Envoyer l'email avec les identifiants (async, ne pas attendre)
+        emailService.sendAccountCreated(email, {
+          prenom,
+          nom,
+          email,
+          temporaryPassword: tempPassword,
+          role,
+        }).catch(err => {
+          console.error('Erreur lors de l\'envoi de l\'email de création de compte:', err);
+        });
+
+        // Retourner l'utilisateur avec le mot de passe temporaire pour que le dev puisse le voir
+        res.status(201).json({
+          success: true,
+          data: user,
+          message: 'Utilisateur créé avec succès. Un email a été envoyé avec le mot de passe temporaire.',
+        });
+      } else {
+        res.status(201).json({
+          success: true,
+          data: user,
+          message: 'Utilisateur créé avec succès',
+        });
+      }
     } catch (error) {
       next(error);
     }

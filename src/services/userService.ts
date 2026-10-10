@@ -9,6 +9,31 @@ import { UserRole } from '@prisma/client';
  */
 export class UserService {
   /**
+   * Génère un mot de passe temporaire sécurisé
+   */
+  private generateTempPassword(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+
+    // Au moins une majuscule
+    password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)];
+    // Au moins une minuscule
+    password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)];
+    // Au moins un chiffre
+    password += '0123456789'[Math.floor(Math.random() * 10)];
+    // Au moins un caractère spécial
+    password += '!@#$%^&*'[Math.floor(Math.random() * 8)];
+
+    // Compléter jusqu'à 12 caractères
+    for (let i = 0; i < 8; i++) {
+      password += chars[Math.floor(Math.random() * chars.length)];
+    }
+
+    // Mélanger les caractères
+    return password.split('').sort(() => Math.random() - 0.5).join('');
+  }
+
+  /**
    * Récupérer le profil complet d'un utilisateur
    */
   async getUserProfile(userId: string) {
@@ -124,7 +149,7 @@ export class UserService {
    */
   async createUser(data: {
     email: string;
-    password: string;
+    password?: string;
     prenom: string;
     nom: string;
     tel?: string;
@@ -140,8 +165,12 @@ export class UserService {
       throw new ApiError(409, 'Cet email est déjà utilisé');
     }
 
+    // Générer un mot de passe temporaire si non fourni
+    const wasPasswordProvided = !!data.password;
+    const tempPassword = data.password || this.generateTempPassword();
+
     // Hasher le mot de passe
-    const hashedPassword = await hashPassword(data.password);
+    const hashedPassword = await hashPassword(tempPassword);
 
     // Créer l'utilisateur avec son profil
     const user = await prisma.user.create({
@@ -164,7 +193,12 @@ export class UserService {
     });
 
     const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+
+    // Retourner l'utilisateur avec le mot de passe temporaire si généré
+    return {
+      ...userWithoutPassword,
+      ...(wasPasswordProvided ? {} : { temporaryPassword: tempPassword }),
+    };
   }
 }
 

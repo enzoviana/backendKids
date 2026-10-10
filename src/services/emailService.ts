@@ -479,6 +479,104 @@ class EmailService {
 
     return this.sendEmail(to, 'Alerte de sécurité - Kids\'Med IA', html);
   }
+
+  /**
+   * EMAIL 15: Création de compte avec mot de passe temporaire
+   */
+  async sendAccountCreated(
+    to: string,
+    data: {
+      prenom: string;
+      nom: string;
+      email: string;
+      temporaryPassword: string;
+      role: string;
+    }
+  ): Promise<boolean> {
+    const lien_action = emailConfig.urls.login || 'https://kidsmed.fr/login';
+
+    // Template HTML simple pour le mot de passe temporaire
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compte créé - Kids'Med IA</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Kids'Med IA</h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 40px 30px;">
+              <h2 style="color: #333333; margin: 0 0 20px 0; font-size: 22px;">Bonjour ${data.prenom} ${data.nom},</h2>
+
+              <p style="color: #666666; line-height: 1.6; margin: 0 0 20px 0;">
+                Votre compte <strong>Kids'Med IA</strong> a été créé avec succès.
+              </p>
+
+              <div style="background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0 0 10px 0; color: #333333; font-weight: bold;">Vos identifiants de connexion :</p>
+                <p style="margin: 5px 0; color: #666666;"><strong>Email :</strong> ${data.email}</p>
+                <p style="margin: 5px 0; color: #666666;"><strong>Rôle :</strong> ${data.role}</p>
+                <p style="margin: 5px 0; color: #666666;"><strong>Mot de passe temporaire :</strong></p>
+                <div style="background-color: #fff; border: 2px dashed #667eea; padding: 15px; margin-top: 10px; text-align: center; border-radius: 4px;">
+                  <code style="font-size: 18px; color: #667eea; font-weight: bold; letter-spacing: 1px;">${data.temporaryPassword}</code>
+                </div>
+              </div>
+
+              <div style="background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0; color: #856404; font-size: 14px;">
+                  ⚠️ <strong>Important :</strong> Pour votre sécurité, vous devrez changer ce mot de passe lors de votre première connexion.
+                </p>
+              </div>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${lien_action}" style="display: inline-block; background-color: #667eea; color: #ffffff; text-decoration: none; padding: 15px 40px; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Se connecter maintenant
+                </a>
+              </div>
+
+              <p style="color: #999999; font-size: 12px; margin: 20px 0 0 0;">
+                Si vous n'avez pas demandé la création de ce compte, veuillez contacter notre support immédiatement.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+              <p style="margin: 0 0 10px 0; color: #999999; font-size: 12px;">
+                © ${new Date().getFullYear()} Kids'Med IA - Tous droits réservés
+              </p>
+              <p style="margin: 0; color: #999999; font-size: 12px;">
+                <a href="${emailConfig.urls.support}" style="color: #667eea; text-decoration: none;">Support</a> •
+                <a href="${emailConfig.urls.preferences}" style="color: #667eea; text-decoration: none;">Préférences</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `.trim();
+
+    return this.sendEmail(to, 'Votre compte Kids\'Med IA a été créé', html);
+  }
 }
 
 export const emailService = new EmailService();
