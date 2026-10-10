@@ -10,9 +10,45 @@
 
 ### État Actuel
 - **Frontend Mobile :** 100% en mode DÉMO (données mockées, 0 appels API réels)
+- **Frontend Web :** 100% connecté au backend, fonctionnel ✅
 - **Backend API :** 102 routes disponibles, prêt pour connexion
 - **Infrastructure :** React Query installé mais non utilisé, Backend URL configurée
-- **Authentification :** Aucune - sélection de rôle simulée
+- **Authentification :**
+  - Web: JWT avec MFA (fonctionnel) ✅
+  - Mobile: Aucune - sélection de rôle simulée ❌
+
+### Architecture Unifiée
+
+**🔑 IMPORTANT : Les utilisateurs pourront se connecter sur les DEUX plateformes avec les MÊMES identifiants**
+
+```
+┌─────────────────────┐         ┌──────────────────────┐
+│   Frontend Web      │         │   Frontend Mobile    │
+│  (React + Vite)     │         │  (React Native)      │
+│ crossrole-manager/  │         │   frontend/          │
+└──────────┬──────────┘         └──────────┬───────────┘
+           │                               │
+           └───────────┐       ┌───────────┘
+                       ▼       ▼
+              ┌────────────────────────┐
+              │   Backend API Unique   │
+              │  (Node.js + Express)   │
+              │  /api (102 routes)     │
+              └────────────┬───────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │  Base de Données       │
+              │  PostgreSQL + Prisma   │
+              │  (Table Users unifiée) │
+              └────────────────────────┘
+```
+
+**Exemple concret :**
+- 👤 Marie (Parent) crée son compte sur le **Web**
+- 📱 Marie peut immédiatement se connecter sur l'**App Mobile** avec le même email/password
+- 🔄 Les données de ses enfants sont **synchronisées** entre Web et Mobile
+- 🔐 Même authentification JWT + MFA par SMS
 
 ### Objectif
 Connecter l'application mobile au backend existant **SANS MODIFIER l'UI/UX**.
@@ -70,6 +106,232 @@ Connecter l'application mobile au backend existant **SANS MODIFIER l'UI/UX**.
 - `src/routes/diagnosticRoutes.ts` - IA diagnostics
 - `src/routes/rsaiRoutes.ts` - Gestion RSAI
 - `src/middleware/auth.ts` - JWT authentication
+
+---
+
+## 🔄 SYNCHRONISATION MULTI-PLATEFORME
+
+### Principe Fondamental
+
+**Une seule base de données, un seul backend, plusieurs interfaces.**
+
+Les utilisateurs créent UN compte qui fonctionne sur **TOUTES** les plateformes :
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Compte Utilisateur                     │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ Email: marie.dupont@email.com                   │   │
+│  │ Password: ******** (hashé bcrypt)               │   │
+│  │ Role: parent                                     │   │
+│  │ Téléphone: +33612345678 (pour MFA)             │   │
+│  │ Enfants: [Léa, Tom]                            │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+              │                           │
+              ▼                           ▼
+    ┌──────────────────┐      ┌──────────────────┐
+    │  Frontend Web    │      │ Frontend Mobile  │
+    │  (ordinateur)    │      │  (smartphone)    │
+    └──────────────────┘      └──────────────────┘
+```
+
+### Scénarios d'Usage
+
+#### Scénario 1 : Inscription sur Web → Connexion Mobile
+```
+1. Parent crée son compte sur le site web
+   POST /api/auth/register
+   { email: "marie@email.com", password: "...", role: "parent" }
+
+2. Backend crée l'utilisateur en base de données
+
+3. Parent télécharge l'app mobile
+
+4. Parent se connecte avec les MÊMES identifiants
+   POST /api/auth/login (même endpoint)
+   { email: "marie@email.com", password: "..." }
+
+5. ✅ Connexion réussie, accès à ses enfants
+```
+
+#### Scénario 2 : Inscription sur Mobile → Connexion Web
+```
+1. Crèche crée son compte sur l'app mobile
+   POST /api/auth/register
+
+2. Backend crée l'utilisateur en base de données
+
+3. Crèche se connecte sur le site web (ordinateur)
+   POST /api/auth/login (même endpoint)
+
+4. ✅ Connexion réussie, accès aux mêmes enfants
+```
+
+#### Scénario 3 : Synchronisation en Temps Réel
+```
+1. Parent ajoute un enfant sur le WEB
+   POST /api/enfants
+
+2. Backend enregistre en base de données
+
+3. Parent ouvre l'app MOBILE
+   GET /api/enfants
+
+4. ✅ Le nouvel enfant apparaît automatiquement
+```
+
+### Authentification Unifiée
+
+**Routes d'authentification (partagées Web + Mobile) :**
+
+| Route | Méthode | Description | Utilisé par |
+|-------|---------|-------------|-------------|
+| `/api/auth/login` | POST | Connexion email/password | Web ✅ Mobile ❌→✅ |
+| `/api/auth/register` | POST | Création compte | Web ✅ Mobile ❌→✅ |
+| `/api/auth/refresh` | POST | Refresh JWT token | Web ✅ Mobile ❌→✅ |
+| `/api/auth/me` | GET | Profil utilisateur connecté | Web ✅ Mobile ❌→✅ |
+| `/api/auth/logout` | POST | Déconnexion | Web ✅ Mobile ❌→✅ |
+| `/api/auth/mfa/send-code` | POST | Envoi code SMS MFA | Web ✅ Mobile ❌→✅ |
+| `/api/auth/mfa/verify-code` | POST | Vérification code MFA | Web ✅ Mobile ❌→✅ |
+| `/api/auth/forgot-password` | POST | Mot de passe oublié | Web ✅ Mobile ❌→✅ |
+| `/api/auth/reset-password` | POST | Réinitialisation MDP | Web ✅ Mobile ❌→✅ |
+
+**Légende :**
+- ✅ = Implémenté et fonctionnel
+- ❌→✅ = À implémenter (même code backend, juste l'appeler depuis mobile)
+
+### Stockage des Tokens
+
+**Web (Frontend React) :**
+```typescript
+// localStorage ou sessionStorage
+localStorage.setItem('accessToken', token);
+```
+
+**Mobile (Frontend React Native) :**
+```typescript
+// SecureStore (chiffré, sécurisé)
+import * as SecureStore from 'expo-secure-store';
+await SecureStore.setItemAsync('authToken', token);
+```
+
+**Résultat :** Même token JWT, stockage adapté à chaque plateforme.
+
+### Données Synchronisées
+
+**Toutes les données sont synchronisées automatiquement :**
+
+- ✅ Compte utilisateur (email, profil, rôle)
+- ✅ Enfants (liste, dossiers médicaux)
+- ✅ Transmissions quotidiennes (repas, siestes, changes)
+- ✅ Diagnostics IA
+- ✅ Notifications
+- ✅ Documents
+- ✅ Prescriptions médicales
+- ✅ Vaccins
+- ✅ Consentements
+- ✅ Missions RSAI
+- ✅ Checklists conformité
+
+**Mécanisme :**
+```
+Mobile modifie → POST /api/... → Base de données mise à jour
+                                          ↓
+Web recharge → GET /api/... → Données fraîches récupérées
+```
+
+### Cas Particuliers
+
+#### MFA (Authentification à 2 Facteurs)
+
+**Même numéro de téléphone pour Web et Mobile :**
+
+```
+1. Utilisateur se connecte (Web ou Mobile)
+   POST /api/auth/login
+
+2. Backend détecte MFA activé
+   Réponse: { mfaRequired: true, userId: "..." }
+
+3. Frontend demande code SMS
+   POST /api/auth/mfa/send-code
+   { userId: "..." }
+
+4. Utilisateur reçoit SMS sur son téléphone
+   Code: 123456
+
+5. Utilisateur entre le code (Web ou Mobile)
+   POST /api/auth/mfa/verify-code
+   { userId: "...", code: "123456" }
+
+6. ✅ Connexion validée, token JWT renvoyé
+```
+
+#### Géofencing RSAI (Spécifique Mobile)
+
+Le géofencing est une fonctionnalité **spécifique mobile** (géolocalisation GPS).
+
+**Web :** Pas de géofencing (ordinateur fixe)
+**Mobile :** Géofencing activé
+
+```typescript
+// Mobile uniquement
+const location = await Location.getCurrentPositionAsync({});
+const response = await apiClient.post('/api/rsai/:id/geofence-verify', {
+  latitude: location.coords.latitude,
+  longitude: location.coords.longitude,
+  crecheId: "..."
+});
+
+if (response.inside) {
+  // Déverrouiller accès enfants
+}
+```
+
+**Backend :** Même endpoint, mais appelé uniquement depuis mobile.
+
+#### Avatar / Photo de Profil
+
+**Même avatar sur Web et Mobile :**
+
+```
+1. Utilisateur upload photo sur WEB
+   POST /api/users/me/avatar (multipart/form-data)
+
+2. Backend stocke l'image (AWS S3 ou local)
+   Réponse: { avatarUrl: "https://..." }
+
+3. Mobile récupère le profil
+   GET /api/auth/me
+   Réponse: { user: { avatarUrl: "https://..." } }
+
+4. ✅ Même photo affichée sur Web et Mobile
+```
+
+### Avantages de l'Architecture Unifiée
+
+✅ **Expérience utilisateur fluide** - Un seul compte, accessible partout
+✅ **Données toujours à jour** - Synchronisation automatique
+✅ **Maintenance simplifiée** - Une seule API à maintenir
+✅ **Sécurité centralisée** - Règles d'authentification identiques
+✅ **Évolutivité** - Facile d'ajouter de nouvelles plateformes (iOS, Android, Web, Desktop)
+
+### Différences Techniques Web vs Mobile
+
+| Aspect | Frontend Web | Frontend Mobile |
+|--------|--------------|-----------------|
+| **Framework** | React + Vite | React Native + Expo |
+| **Navigation** | React Router | Expo Router |
+| **State** | Context API | Context API (à migrer vers React Query) |
+| **HTTP Client** | Fetch/Axios | Fetch natif |
+| **Stockage Tokens** | localStorage | SecureStore (chiffré) |
+| **Stockage Local** | localStorage | AsyncStorage |
+| **Géolocalisation** | ❌ Non utilisée | ✅ GPS natif |
+| **Notifications** | ✅ Web Push | ✅ Expo Notifications |
+| **Upload Photos** | Input file HTML | ImagePicker natif |
+
+**Mais :** Même backend, mêmes endpoints, mêmes données ✅
 
 ---
 
