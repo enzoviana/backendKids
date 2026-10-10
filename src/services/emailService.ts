@@ -1,15 +1,26 @@
-import { createSMTPTransporter, emailConfig } from '../config/email';
+import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email';
 import { renderTemplate, EmailTemplate } from '../utils/emailTemplates';
 import type { Transporter } from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 
 /**
  * Service d'envoi d'emails
  */
 class EmailService {
   private transporter: Transporter | null = null;
+  private useSendGrid: boolean = false;
 
   constructor() {
-    this.transporter = createSMTPTransporter();
+    // Configuration du provider d'emails
+    if (emailConfig.provider === 'sendgrid') {
+      this.useSendGrid = verifySendGridConfig();
+      if (this.useSendGrid) {
+        sgMail.setApiKey(emailConfig.sendgrid.apiKey);
+        console.log('✅ SendGrid initialisé - Les emails seront envoyés via SendGrid API');
+      }
+    } else {
+      this.transporter = createSMTPTransporter();
+    }
   }
 
   /**
@@ -18,7 +29,7 @@ class EmailService {
   private async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
     try {
       // Mode MOCK : afficher dans la console
-      if (emailConfig.mockMode || !this.transporter) {
+      if (emailConfig.mockMode) {
         console.log('\n📧 ========== EMAIL MOCK ==========');
         console.log(`À: ${to}`);
         console.log(`Sujet: ${subject}`);
@@ -28,7 +39,30 @@ class EmailService {
         return true;
       }
 
-      // Mode RÉEL : envoyer via SMTP avec timeout de 10 secondes
+      // Mode SENDGRID : envoyer via API SendGrid
+      if (this.useSendGrid) {
+        const msg = {
+          to,
+          from: {
+            email: emailConfig.from.email,
+            name: emailConfig.from.name,
+          },
+          subject,
+          html,
+        };
+
+        await sgMail.send(msg);
+        console.log(`✅ Email envoyé via SendGrid à ${to}`);
+        return true;
+      }
+
+      // Mode SMTP : envoyer via transporteur SMTP
+      if (!this.transporter) {
+        console.error('❌ Aucun transporteur SMTP configuré');
+        console.log('💡 Suggestion: Configurez SMTP ou activez EMAIL_MOCK_MODE=true');
+        return false;
+      }
+
       const info = await this.transporter.sendMail({
         from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
         to,
@@ -36,19 +70,27 @@ class EmailService {
         html,
       });
 
-      console.log(`✅ Email envoyé à ${to} (ID: ${info.messageId})`);
+      console.log(`✅ Email envoyé via SMTP à ${to} (ID: ${info.messageId})`);
       return true;
     } catch (error: any) {
       // Log détaillé mais ne pas crasher
       console.error(`❌ Erreur lors de l'envoi de l'email à ${to}:`);
+      console.error(`   Provider: ${this.useSendGrid ? 'SendGrid' : 'SMTP'}`);
       console.error(`   Code: ${error.code || 'N/A'}`);
       console.error(`   Message: ${error.message || 'Unknown error'}`);
 
-      // Suggestions selon le type d'erreur
-      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
-        console.error('   💡 Suggestion: Vérifiez votre configuration SMTP ou activez EMAIL_MOCK_MODE=true');
-      } else if (error.code === 'EAUTH') {
-        console.error('   💡 Suggestion: Vérifiez vos identifiants SMTP (SMTP_USER et SMTP_PASSWORD)');
+      // Suggestions selon le type d'erreur et le provider
+      if (this.useSendGrid) {
+        console.error('   💡 Suggestion: Vérifiez votre SENDGRID_API_KEY');
+        if (error.response?.body) {
+          console.error('   Détails SendGrid:', JSON.stringify(error.response.body, null, 2));
+        }
+      } else {
+        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION' || error.code === 'ESOCKET' || error.code === 'ENETUNREACH') {
+          console.error('   💡 Suggestion: Utilisez SendGrid (EMAIL_PROVIDER=sendgrid) ou activez EMAIL_MOCK_MODE=true');
+        } else if (error.code === 'EAUTH') {
+          console.error('   💡 Suggestion: Vérifiez vos identifiants SMTP (SMTP_USER et SMTP_PASSWORD)');
+        }
       }
 
       return false;

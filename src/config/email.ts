@@ -7,6 +7,11 @@ export const emailConfig = {
   provider: process.env.EMAIL_PROVIDER || 'smtp',
   mockMode: process.env.EMAIL_MOCK_MODE === 'true',
 
+  // Configuration SendGrid (Recommandé pour production)
+  sendgrid: {
+    apiKey: process.env.SENDGRID_API_KEY || '',
+  },
+
   // Configuration SMTP (Hostinger, Gmail, Outlook, etc.)
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.hostinger.com',
@@ -46,6 +51,25 @@ export const emailConfig = {
     name: process.env.APP_NAME || "Kids'Med IA",
     supportEmail: process.env.APP_SUPPORT_EMAIL || 'support@kidsmed.fr',
   },
+};
+
+/**
+ * Vérifier la configuration SendGrid
+ */
+export const verifySendGridConfig = (): boolean => {
+  if (emailConfig.mockMode) {
+    console.log('📧 Mode MOCK activé - Les emails seront affichés dans la console');
+    return false;
+  }
+
+  if (!emailConfig.sendgrid.apiKey) {
+    console.warn('⚠️ Configuration SendGrid incomplète - Les emails ne seront pas envoyés');
+    console.warn('💡 Configurez SENDGRID_API_KEY dans votre .env');
+    return false;
+  }
+
+  console.log('✅ SendGrid configuré avec succès');
+  return true;
 };
 
 /**
