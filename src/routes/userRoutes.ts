@@ -68,6 +68,16 @@ router.patch(
 );
 
 /**
+ * PATCH /api/users/:userId/repair
+ * Réparer un compte (activer + autoriser connexion directe)
+ */
+router.patch(
+  '/:userId/repair',
+  requireUserManagement,
+  userController.repairAccount.bind(userController)
+);
+
+/**
  * DELETE /api/users/:userId
  * Supprimer un utilisateur (superadmin/développeur seulement)
  */

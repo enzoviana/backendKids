@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { userService } from '../services/userService';
 import { emailService } from '../services/emailService';
 import { AuthRequest, UpdateProfileDto } from '../types';
+import prisma from '../config/prisma';
 
 /**
  * Contrôleur de gestion des utilisateurs
@@ -92,6 +93,33 @@ export class UserController {
         success: true,
         data: user,
         message: `Utilisateur ${isActive ? 'activé' : 'désactivé'} avec succès`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/users/:userId/repair
+   * Réparer un compte (activer + désactiver mustChangePassword)
+   */
+  async repairAccount(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.params;
+
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          isActive: true,
+          mustChangePassword: false,
+        },
+        include: { profile: true },
+      });
+
+      res.status(200).json({
+        success: true,
+        data: user,
+        message: 'Compte réparé avec succès (activé + connexion directe autorisée)',
       });
     } catch (error) {
       next(error);
