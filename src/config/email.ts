@@ -68,7 +68,6 @@ export const createSMTPTransporter = () => {
       host: emailConfig.smtp.host,
       port: emailConfig.smtp.port,
       secure: emailConfig.smtp.secure,
-      family: 4, // Force IPv4 pour éviter ENETUNREACH sur Render
       connectionTimeout: 10000, // 10 secondes timeout
       greetingTimeout: 10000,
       socketTimeout: 10000,
@@ -85,7 +84,11 @@ export const createSMTPTransporter = () => {
       pool: true,
       maxConnections: 5,
       maxMessages: 10,
-    });
+      // Force IPv4 pour éviter ENETUNREACH sur Render
+      dnsOptions: {
+        family: 4,
+      },
+    } as any);
 
     console.log(`✅ Transporteur SMTP configuré (${emailConfig.smtp.host}:${emailConfig.smtp.port}) - IPv4 forcé`);
 
