@@ -7,6 +7,7 @@ import {
   registerValidation,
   changePasswordValidation,
 } from '../utils/validators';
+import mfaRoutes from './mfaRoutes';
 
 const router = Router();
 
@@ -73,5 +74,12 @@ router.post('/forgot-password', authController.forgotPassword.bind(authControlle
  * Réinitialiser le mot de passe avec un token
  */
 router.post('/reset-password', authController.resetPassword.bind(authController));
+
+/**
+ * Routes MFA (Authentification à deux facteurs par SMS)
+ * POST /api/auth/mfa/send-code
+ * POST /api/auth/mfa/verify-code
+ */
+router.use('/mfa', mfaRoutes);
 
 export default router;

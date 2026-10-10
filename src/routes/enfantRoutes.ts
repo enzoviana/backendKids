@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { enfantController } from '../controllers/enfantController';
 import { authenticate, requireProfessional, authorize } from '../middleware/auth';
 import { UserRole } from '@prisma/client';
+import enfantVaccinRoutes from './enfantVaccinRoutes';
+import enfantConsentementRoutes from './enfantConsentementRoutes';
 
 const router = Router();
 
@@ -120,5 +122,19 @@ router.post(
   authorize(UserRole.creche, UserRole.medecin, UserRole.parent),
   enfantController.createEchangeDocument.bind(enfantController)
 );
+
+/**
+ * Routes vaccins (alias pour compatibilité frontend)
+ * GET /api/enfants/:id/vaccins
+ * POST /api/enfants/:id/vaccins
+ */
+router.use('/:enfantId/vaccins', enfantVaccinRoutes);
+
+/**
+ * Routes consentements (alias pour compatibilité frontend)
+ * GET /api/enfants/:id/consentements
+ * PUT /api/enfants/:id/consentements/:type
+ */
+router.use('/:enfantId/consentements', enfantConsentementRoutes);
 
 export default router;

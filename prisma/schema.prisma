@@ -722,3 +722,17 @@ model EtablissementSecurite {
 
   @@index([etablissementId])
 }
+
+model MfaCode {
+  id        String   @id @default(uuid())
+  userId    String
+  code      String   // Code à 6 chiffres
+  phone     String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([code])
+  @@index([expiresAt])
+}
