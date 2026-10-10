@@ -456,17 +456,34 @@ if (response.inside) {
 
 #### 🔴 TÂCHE 2 : Remplacer l'écran de sélection de rôle par un Login
 
-- [ ] **Modifier `/frontend/app/index.tsx`**
-  - [ ] Remplacer les boutons "Parent", "Crèche", "RSAI" par un formulaire de login
-  - [ ] Ajouter champs : Email, Mot de passe
-  - [ ] Appeler `useAuth().login(email, password)`
-  - [ ] Rediriger selon le rôle retourné par `/api/auth/me`
-  - [ ] **ATTENTION** : Garder le même design visuel (couleurs, layout)
+- [x] **Modifier `/frontend/app/index.tsx`** ✅
+  - [x] Remplacer par écran de vérification auth ✅
+  - [x] Vérifier token SecureStore ✅
+  - [x] Appeler `useAuth()` pour récupérer user ✅
+  - [x] Rediriger selon le rôle retourné par `/api/auth/me` ✅
+  - [x] **ATTENTION** : Garder le même design visuel (couleurs, layout) ✅
 
-- [ ] **Créer écran d'inscription** `/frontend/app/register.tsx`
-  - [ ] Formulaire : Prénom, Nom, Email, Téléphone, Mot de passe, Rôle
-  - [ ] Appeler `POST /api/auth/register`
-  - [ ] Rediriger vers login après succès
+- [x] **Créer écran de connexion** `/frontend/app/login.tsx` ✅
+  - [x] Formulaire : Email, Mot de passe ✅
+  - [x] Appeler `useAuth().login(email, password)` ✅
+  - [x] Afficher/masquer mot de passe ✅
+  - [x] Lien mot de passe oublié ✅
+  - [x] Lien vers inscription ✅
+  - [x] Design conservé (même BG, même style) ✅
+
+- [x] **Créer écran d'inscription** `/frontend/app/register.tsx` ✅
+  - [x] Formulaire : Prénom, Nom, Email, Téléphone, Mot de passe, Rôle ✅
+  - [x] Sélection rôle (Parent, Crèche, Médecin) ✅
+  - [x] Confirmation mot de passe ✅
+  - [x] Appeler `POST /api/auth/register` ✅
+  - [x] Rediriger vers login après succès ✅
+
+- [x] **Mettre à jour navigation** `/frontend/app/_layout.tsx` ✅
+  - [x] Ajouter routes login et register ✅
+
+- [x] **Mettre à jour profil** `/frontend/app/profile.tsx` ✅
+  - [x] Bouton déconnexion utilise `useAuth().logout()` ✅
+  - [x] Redirection vers /login après déconnexion ✅
 
 #### 🔴 TÂCHE 3 : Gérer le refresh token automatique
 
