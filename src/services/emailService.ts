@@ -493,7 +493,7 @@ class EmailService {
       role: string;
     }
   ): Promise<boolean> {
-    const lien_action = emailConfig.urls.login || 'https://kidsmed.fr/login';
+    const lien_action = emailConfig.urls.login;
 
     // Template HTML simple pour le mot de passe temporaire
     const html = `
