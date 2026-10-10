@@ -30,10 +30,10 @@ export const emailConfig = {
   },
 
   // URLs du frontend
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:8080',
   urls: {
-    login: process.env.FRONTEND_LOGIN_URL || 'http://localhost:3000/login',
-    resetPassword: process.env.FRONTEND_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password',
+    login: process.env.FRONTEND_LOGIN_URL || 'http://localhost:8080/connexion',
+    resetPassword: process.env.FRONTEND_RESET_PASSWORD_URL || 'http://localhost:8080/reset-password',
     activateAccount: process.env.FRONTEND_ACTIVATE_ACCOUNT_URL || 'http://localhost:3000/activate',
     messages: process.env.FRONTEND_MESSAGES_URL || 'http://localhost:3000/messages',
     transmissions: process.env.FRONTEND_TRANSMISSIONS_URL || 'http://localhost:3000/transmissions',
