@@ -8,6 +8,7 @@ import { connectDatabase, disconnectDatabase } from './config/prisma';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { metricsMiddleware } from './controllers/developerController';
+import { startAllJobs, stopAllJobs } from './jobs';
 
 /**
  * Initialisation de l'application Express
@@ -81,6 +82,9 @@ const startServer = async (): Promise<void> => {
     // Connexion à la base de données
     await connectDatabase();
 
+    // Démarrage des cronjobs
+    startAllJobs();
+
     // Démarrage du serveur HTTP
     app.listen(env.port, () => {
       console.log('='.repeat(60));
@@ -109,12 +113,14 @@ const startServer = async (): Promise<void> => {
     // Gestion de l'arrêt propre du serveur
     process.on('SIGTERM', async () => {
       console.log('\n⚠️  Signal SIGTERM reçu. Arrêt du serveur...');
+      stopAllJobs();
       await disconnectDatabase();
       process.exit(0);
     });
 
     process.on('SIGINT', async () => {
       console.log('\n⚠️  Signal SIGINT reçu. Arrêt du serveur...');
+      stopAllJobs();
       await disconnectDatabase();
       process.exit(0);
     });

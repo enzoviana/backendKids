@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
 import { messageService } from '../services/messageService';
+import { emailService } from '../services/emailService';
+import prisma from '../config/prisma';
 
 export const messageController = {
   async createMessage(req: Request, res: Response) {
@@ -18,6 +20,34 @@ export const messageController = {
         important,
         pieceJointe,
       });
+
+      // Envoyer un email au destinataire (ne pas bloquer si échec)
+      try {
+        const expediteur = await prisma.user.findUnique({
+          where: { id: expediteurId },
+          include: { profile: true },
+        });
+
+        const destinataire = await prisma.user.findUnique({
+          where: { id: destinataireId },
+          include: { profile: true },
+        });
+
+        if (expediteur && destinataire) {
+          const apercu = contenu.length > 150 ? contenu.substring(0, 150) + '...' : contenu;
+
+          await emailService.sendNewMessage(destinataire.email, {
+            prenom: destinataire.profile?.prenom || 'Utilisateur',
+            expediteur: `${expediteur.profile?.prenom || ''} ${expediteur.profile?.nom || ''}`.trim() || 'Un utilisateur',
+            objet,
+            apercu,
+            messageId: message.id,
+          });
+        }
+      } catch (emailError) {
+        console.error('❌ Erreur lors de l\'envoi de l\'email de notification:', emailError);
+        // Ne pas bloquer la réponse
+      }
 
       res.status(201).json({ success: true, data: message });
     } catch (error: any) {

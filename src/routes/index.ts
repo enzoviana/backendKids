@@ -30,6 +30,7 @@ import consentementRoutes from './consentementRoutes';
 import rgpdRoutes from './rgpdRoutes';
 import securiteRoutes from './securiteRoutes';
 import coordinationRoutes from './coordinationRoutes';
+import webhookRoutes from './webhookRoutes';
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.use('/consentements', consentementRoutes);
 router.use('/rgpd', rgpdRoutes);
 router.use('/securite', securiteRoutes);
 router.use('/coordination', coordinationRoutes);
+router.use('/webhooks', webhookRoutes);
 
 /**
  * Route de santé de l'API

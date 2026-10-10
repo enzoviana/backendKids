@@ -5,6 +5,7 @@ import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 import { LoginDto, RegisterDto, ChangePasswordDto, JWTPayload } from '../types';
 import { ApiError } from '../middleware/errorHandler';
 import crypto from 'crypto';
+import { emailService } from './emailService';
 
 /**
  * Service d'authentification
@@ -291,13 +292,17 @@ export class AuthService {
       },
     });
 
-    // TODO: Envoyer un email avec le token
-    // Pour l'instant, le token sera juste stocké en base
-    // Dans un vrai système, on enverrait un email avec un lien comme:
-    // https://app.example.com/reset-password?token=abc123
+    // Récupérer le profil pour le prénom
+    const profile = await prisma.profile.findUnique({
+      where: { userId: user.id },
+    });
 
-    console.log(`Token de réinitialisation généré pour ${email}: ${token}`);
-    console.log(`Lien de réinitialisation: http://localhost:3000/reset-password?token=${token}`);
+    // Envoyer l'email de réinitialisation
+    await emailService.sendPasswordReset(email, {
+      prenom: profile?.prenom || 'Utilisateur',
+      token,
+      expiration: '1 heure',
+    });
 
     return;
   }

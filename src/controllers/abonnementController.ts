@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
 import { abonnementService } from '../services/abonnementService';
+import { stripeService } from '../services/stripeService';
+import { AuthRequest } from '../types';
 
 export const abonnementController = {
   async createAbonnement(req: Request, res: Response) {
@@ -107,9 +109,29 @@ export const abonnementController = {
     }
   },
 
-  async getMyAbonnement(req: Request, res: Response) {
+  async getMyAbonnement(req: AuthRequest, res: Response) {
     try {
-      res.status(200).json({ success: true, data: { plan: 'essentiel', statut: 'actif', prixMensuel: 0, quota: {} } });
+      const authReq = req as AuthRequest;
+      const userId = authReq.user?.userId;
+
+      if (!userId) {
+        return res.status(401).json({ success: false, error: 'Non authentifié' });
+      }
+
+      // TODO: Implémenter la vraie logique d'abonnement
+      console.warn('⚠️ [MOCK] getMyAbonnement - Données mockées retournées');
+      console.log('💡 Implémentez la table Abonnement liée à l\'utilisateur pour des données réelles');
+
+      res.status(200).json({
+        success: true,
+        data: {
+          plan: 'essentiel',
+          statut: 'actif',
+          prixMensuel: 0,
+          quota: {},
+        },
+        _mock: true,
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -117,23 +139,69 @@ export const abonnementController = {
 
   async getRevenus(req: Request, res: Response) {
     try {
-      res.status(200).json({ success: true, data: [] });
+      console.warn('⚠️ [MOCK] getRevenus - Données mockées retournées');
+      console.log('💡 Intégrez Stripe pour récupérer les revenus réels');
+
+      res.status(200).json({ success: true, data: [], _mock: true });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   },
 
-  async createCheckoutSession(req: Request, res: Response) {
+  async createCheckoutSession(req: AuthRequest, res: Response) {
     try {
-      res.status(200).json({ success: true, data: { url: 'https://checkout.stripe.com/...', sessionId: 'cs_test_...' } });
+      const authReq = req as AuthRequest;
+      const userId = authReq.user?.userId;
+      const userEmail = authReq.user?.email;
+      const { priceId, plan } = req.body;
+
+      if (!userId || !userEmail) {
+        return res.status(401).json({ success: false, error: 'Non authentifié' });
+      }
+
+      if (!priceId) {
+        return res.status(400).json({ success: false, error: 'priceId requis' });
+      }
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const successUrl = `${frontendUrl}/abonnement/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${frontendUrl}/abonnement/cancel`;
+
+      const session = await stripeService.createCheckoutSession({
+        priceId,
+        userId,
+        userEmail,
+        successUrl,
+        cancelUrl,
+      });
+
+      res.status(200).json({ success: true, data: session });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   },
 
-  async createPortalSession(req: Request, res: Response) {
+  async createPortalSession(req: AuthRequest, res: Response) {
     try {
-      res.status(200).json({ success: true, data: { url: 'https://billing.stripe.com/...' } });
+      const authReq = req as AuthRequest;
+      const userId = authReq.user?.userId;
+
+      if (!userId) {
+        return res.status(401).json({ success: false, error: 'Non authentifié' });
+      }
+
+      // TODO: Récupérer le customerId Stripe de l'utilisateur depuis la DB
+      const customerId = 'cus_mock_' + userId; // Mock pour l'instant
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const returnUrl = `${frontendUrl}/abonnement`;
+
+      const session = await stripeService.createPortalSession({
+        customerId,
+        returnUrl,
+      });
+
+      res.status(200).json({ success: true, data: session });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -141,7 +209,10 @@ export const abonnementController = {
 
   async attribuerAbonnement(req: Request, res: Response) {
     try {
-      res.status(200).json({ success: true, data: {} });
+      console.warn('⚠️ [MOCK] attribuerAbonnement - Données mockées retournées');
+      console.log('💡 Implémentez la logique d\'attribution d\'abonnement admin');
+
+      res.status(200).json({ success: true, data: {}, _mock: true });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

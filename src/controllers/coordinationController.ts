@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import prisma from '../config/prisma';
+import { emailService } from '../services/emailService';
+import { format } from 'date-fns';
 
 export class CoordinationController {
   /**
@@ -191,6 +193,44 @@ export class CoordinationController {
           creePar: req.user.userId,
         },
       });
+
+      // Envoyer des emails de notification (ne pas bloquer la réponse si échec)
+      try {
+        // Récupérer les infos RSAI
+        const rsai = await prisma.user.findUnique({
+          where: { id: rsaiId },
+          include: { profile: true },
+        });
+
+        // Récupérer les infos crèche
+        const etablissement = await prisma.etablissement.findUnique({
+          where: { id: etablissementId },
+        });
+
+        if (rsai && etablissement) {
+          const horairesStr = horaires
+            ? JSON.stringify(horaires)
+            : 'À définir';
+
+          const adresseStr = `${etablissement.adresse}, ${etablissement.codePostal} ${etablissement.ville}`;
+
+          // Email à la RSAI
+          await emailService.sendRsaiAffectation(rsai.email, {
+            prenom: rsai.profile?.prenom || 'RSAI',
+            nom_rsai: `${rsai.profile?.prenom || ''} ${rsai.profile?.nom || ''}`.trim(),
+            nom_creche: etablissement.nom,
+            adresse: adresseStr,
+            horaires: horairesStr,
+            date_debut: format(new Date(dateDebut), 'dd/MM/yyyy'),
+            affectationId: affectation.id,
+          });
+
+          // TODO: Envoyer aussi à la crèche si besoin
+        }
+      } catch (emailError) {
+        console.error('❌ Erreur lors de l\'envoi des emails d\'affectation:', emailError);
+        // Ne pas bloquer la réponse
+      }
 
       res.status(201).json({
         success: true,
