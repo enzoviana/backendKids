@@ -1,0 +1,573 @@
+// Kids'Med IA — schéma de base de données (PostgreSQL)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  motDePasseHash  String
+  prenom          String    @default("")
+  nom             String    @default("")
+  telephone       String?
+  // parent | medecin | creche | rsai | admin | superadmin | developpeur
+  role            String    @default("parent")
+  actif           Boolean   @default(true)
+  avatarUrl       String?
+  etablissementId String?
+  etablissement   Etablissement? @relation(fields: [etablissementId], references: [id])
+  // Profil médecin / RSAI
+  specialite      String?
+  rpps            String?
+  qualification   String?
+  adresseCabinet  String?
+  // Codes temporaires
+  mfaCode         String?
+  mfaExpiresAt    DateTime?
+  resetToken      String?
+  resetExpiresAt  DateTime?
+  // Double authentification sans SMS
+  totpSecret        String?
+  totpPendingSecret String?
+  totpLastStep      Int?
+  webauthnChallenge String?
+  passkeys          Passkey[]
+  trustedDevices    TrustedDevice[]
+  refreshTokens   RefreshToken[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  liaisons        Liaison[]
+  affectations    Affectation[] @relation("RsaiAffectations")
+  notifications   Notification[]
+  messagesEnvoyes Message[] @relation("Expediteur")
+  messagesRecus   Message[] @relation("Destinataire")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Etablissement {
+  id              String   @id @default(uuid())
+  nom             String
+  adresse         String?
+  codePostal      String?
+  ville           String?
+  latitude        Float?
+  longitude       Float?
+  capacite        Int      @default(0)
+  telephone       String?
+  email           String?
+  rayonMetres     Int      @default(200)
+  blocageHorsZone Boolean  @default(false)
+  plagesHoraires  Json     @default("[]")
+  ipsAutorisees   Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users        User[]
+  enfants      Enfant[]
+  sections     Section[]
+  personnels   Personnel[]
+  affectations Affectation[]
+  demandes     DemandeRsai[]
+  abonnements  Abonnement[]
+}
+
+model Section {
+  id              String   @id @default(uuid())
+  nom             String
+  ageMin          Int?
+  ageMax          Int?
+  capacite        Int      @default(0)
+  etablissementId String
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  enfants         Enfant[]
+  createdAt       DateTime @default(now())
+}
+
+model Personnel {
+  id              String   @id @default(uuid())
+  prenom          String
+  nom             String
+  poste           String?
+  email           String?
+  telephone       String?
+  etablissementId String
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+}
+
+model Enfant {
+  id              String   @id @default(uuid())
+  prenom          String
+  nom             String
+  dateNaissance   DateTime?
+  sexe            String?
+  etablissementId String?
+  etablissement   Etablissement? @relation(fields: [etablissementId], references: [id])
+  sectionId       String?
+  section         Section? @relation(fields: [sectionId], references: [id])
+  codeLiaison     String   @unique
+  groupeSanguin   String?
+  allergies       String[] @default([])
+  antecedents     String[] @default([])
+  pai             Boolean  @default(false)
+  photoUrl        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  liaisons      Liaison[]
+  vaccins       Vaccin[]
+  consentements Consentement[]
+  documents     Document[]
+  transmissions Transmission[]
+  medicaments   Medicament[]
+  ordonnances   Ordonnance[]
+  diagnostics   Diagnostic[]
+  notes         Note[]
+  echanges      EchangeDocument[]
+  presences     Presence[]
+}
+
+model Liaison {
+  id        String   @id @default(uuid())
+  enfantId  String
+  enfant    Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  source    String   @default("code")
+  createdAt DateTime @default(now())
+
+  @@unique([enfantId, userId])
+}
+
+model Presence {
+  id       String   @id @default(uuid())
+  enfantId String
+  enfant   Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  date     DateTime
+  present  Boolean  @default(true)
+  motif    String?
+  dateFin  DateTime?
+  auteurId String?
+  createdAt DateTime @default(now())
+}
+
+model Transmission {
+  id              String   @id @default(uuid())
+  enfantId        String
+  enfant          Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  etablissementId String?
+  auteurId        String?
+  type            String   @default("activite")
+  contenu         String
+  humeur          String?
+  traite          Boolean  @default(false)
+  traiteAt        DateTime?
+  createdAt       DateTime @default(now())
+}
+
+model Medicament {
+  id              String    @id @default(uuid())
+  enfantId        String
+  enfant          Enfant    @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  etablissementId String?
+  ordonnanceId    String?
+  nom             String
+  posologie       String?
+  horaires        String[]  @default([])
+  dateDebut       DateTime  @default(now())
+  dateFin         DateTime?
+  statut          String    @default("en_cours")
+  createdAt       DateTime  @default(now())
+}
+
+model Ordonnance {
+  id              String    @id @default(uuid())
+  enfantId        String
+  enfant          Enfant    @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  medecinId       String?
+  etablissementId String?
+  documentId      String?
+  contenu         String?
+  date            DateTime  @default(now())
+  dateFin         DateTime?
+  statut          String    @default("active")
+  createdAt       DateTime  @default(now())
+}
+
+model Document {
+  id              String    @id @default(uuid())
+  nom             String
+  type            String
+  url             String
+  mimeType        String?
+  taille          Int?
+  enfantId        String?
+  enfant          Enfant?   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  etablissementId String?
+  auteurId        String?
+  dateValidite    DateTime?
+  statut          String    @default("en_attente")
+  createdAt       DateTime  @default(now())
+}
+
+model DocumentObligatoire {
+  id              String   @id @default(uuid())
+  etablissementId String
+  type            String
+  description     String?
+  validiteMois    Int?
+  createdAt       DateTime @default(now())
+}
+
+model Vaccin {
+  id        String    @id @default(uuid())
+  enfantId  String
+  enfant    Enfant    @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  nom       String
+  dose      Int       @default(1)
+  date      DateTime
+  medecinId String?
+  lot       String?
+  rappel    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Consentement {
+  id        String   @id @default(uuid())
+  enfantId  String
+  enfant    Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  type      String
+  accorde   Boolean
+  signeParId String?
+  signature String?
+  date      DateTime @default(now())
+
+  @@unique([enfantId, type])
+}
+
+model Note {
+  id           String   @id @default(uuid())
+  enfantId     String
+  enfant       Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  auteurId     String
+  auteurNom    String
+  auteurRole   String
+  visibilite   String   @default("publique")
+  destinataire String?
+  contenu      String
+  createdAt    DateTime @default(now())
+}
+
+model EchangeDocument {
+  id             String    @id @default(uuid())
+  enfantId       String
+  enfant         Enfant    @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  expediteurId   String
+  expediteurRole String
+  destinataire   String
+  action         String
+  type           String
+  message        String?
+  documentId     String?
+  demandeId      String?
+  statut         String    @default("en_attente")
+  echeance       DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model Diagnostic {
+  id              String   @id @default(uuid())
+  enfantId        String
+  enfant          Enfant   @relation(fields: [enfantId], references: [id], onDelete: Cascade)
+  auteurId        String?
+  symptomes       String[] @default([])
+  temperature     Float?
+  duree           String?
+  commentaire     String?
+  photoUrl        String?
+  resultat        Json     @default("[]")
+  diagnosticSuggere String?
+  confiance       Float    @default(0)
+  niveauRisque    String   @default("faible")
+  conseils        String[] @default([])
+  orientation     String   @default("surveillance")
+  retourMedecin   Json?
+  createdAt       DateTime @default(now())
+}
+
+model AlerteSymptome {
+  id              String   @id @default(uuid())
+  enfantId        String
+  etablissementId String?
+  symptome        String
+  gravite         String   @default("faible")
+  auteurId        String?
+  createdAt       DateTime @default(now())
+}
+
+model Affectation {
+  id              String    @id @default(uuid())
+  rsaiId          String
+  rsai            User      @relation("RsaiAffectations", fields: [rsaiId], references: [id], onDelete: Cascade)
+  etablissementId String
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  jours           Int[]     @default([1, 2, 3, 4, 5])
+  debut           String    @default("08:00")
+  fin             String    @default("18:00")
+  dateDebut       DateTime
+  dateFin         DateTime?
+  statut          String    @default("active")
+  createdAt       DateTime  @default(now())
+}
+
+model DemandeRsai {
+  id              String   @id @default(uuid())
+  etablissementId String
+  etablissement   Etablissement @relation(fields: [etablissementId], references: [id], onDelete: Cascade)
+  rsaiId          String?
+  motif           String
+  dateSouhaitee   DateTime?
+  statut          String   @default("en_attente")
+  reponse         String?
+  affectationId   String?
+  createdAt       DateTime @default(now())
+}
+
+model Avis {
+  id          String   @id @default(uuid())
+  auteurId    String
+  auteurNom   String
+  auteurRole  String
+  cibleType   String   // rsai | etablissement
+  cibleId     String
+  cibleNom    String
+  note        Int
+  commentaire String?
+  createdAt   DateTime @default(now())
+
+  @@unique([auteurId, cibleType, cibleId])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  expediteurId   String
+  expediteur     User     @relation("Expediteur", fields: [expediteurId], references: [id], onDelete: Cascade)
+  destinataireId String
+  destinataire   User     @relation("Destinataire", fields: [destinataireId], references: [id], onDelete: Cascade)
+  enfantId       String?
+  sujet          String
+  contenu        String
+  lu             Boolean  @default(false)
+  createdAt      DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  titre     String
+  message   String
+  type      String   @default("info")
+  lien      String?
+  lue       Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Tarif {
+  id              String   @id @default(uuid())
+  nom             String
+  roleCible       String   @default("tous")
+  prixMensuel     Float
+  prixAnnuel      Float?
+  fonctionnalites String[] @default([])
+  actif           Boolean  @default(true)
+  stripePriceId   String?
+  createdAt       DateTime @default(now())
+}
+
+model Abonnement {
+  id                   String    @id @default(uuid())
+  etablissementId      String?
+  etablissement        Etablissement? @relation(fields: [etablissementId], references: [id])
+  userId               String?
+  plan                 String
+  statut               String    @default("actif")
+  prixMensuel          Float     @default(0)
+  dateDebut            DateTime  @default(now())
+  dateFin              DateTime?
+  gratuit              Boolean   @default(false)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  createdAt            DateTime  @default(now())
+}
+
+model RendezVous {
+  id              String   @id @default(uuid())
+  medecinId       String
+  enfantId        String
+  etablissementId String?
+  date            DateTime
+  motif           String?
+  createdAt       DateTime @default(now())
+}
+
+model LogSecurite {
+  id        String   @id @default(uuid())
+  userId    String?
+  enfantId  String?
+  action    String
+  ip        String?
+  device    String?
+  autorise  Boolean  @default(true)
+  motif     String?
+  createdAt DateTime @default(now())
+}
+
+model Log {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  details   Json?
+  ip        String?
+  createdAt DateTime @default(now())
+}
+
+model ReglesAcces {
+  id        String   @id @default("global")
+  plages    Json     @default("[]")
+  geofences Json     @default("[]")
+  updatedAt DateTime @updatedAt
+}
+
+model DemandeRgpd {
+  id         String    @id @default(uuid())
+  userId     String
+  type       String
+  enfantId   String?
+  motif      String?
+  statut     String    @default("recue")
+  delaiLegal DateTime
+  createdAt  DateTime  @default(now())
+}
+
+model Ticket {
+  id          String   @id @default(uuid())
+  numero      String   @unique
+  auteurId    String?
+  titre       String
+  description String
+  priorite    String   @default("normale")
+  categorie   String   @default("question")
+  statut      String   @default("ouvert")
+  page        String?
+  device      String?
+  createdAt   DateTime @default(now())
+}
+
+model ErreurServeur {
+  id        String   @id @default(uuid())
+  message   String
+  endpoint  String
+  level     String   @default("error")
+  count     Int      @default(1)
+  resolved  Boolean  @default(false)
+  lastSeen  DateTime @default(now())
+
+  @@unique([message, endpoint])
+}
+
+model ConfigEntry {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Passkey {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String    @unique
+  publicKey    String
+  counter      Int       @default(0)
+  transports   String[]
+  nom          String    @default("Passkey")
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+}
+
+model TrustedDevice {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  nom        String    @default("Appareil")
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+}
+
+model Temperature {
+  id        String   @id @default(uuid())
+  enfantId  String
+  valeur    Float
+  methode   String?
+  auteurId  String?
+  auteurRole String?
+  createdAt DateTime @default(now())
+  @@index([enfantId, createdAt])
+}
+
+model Administration {
+  id           String   @id @default(uuid())
+  medicamentId String
+  enfantId     String
+  heure        String
+  dose         String?
+  auteurId     String
+  createdAt    DateTime @default(now())
+  @@unique([medicamentId, heure, jour])
+  jour         String
+}
+
+model Autorisation {
+  id        String    @id @default(uuid())
+  enfantId  String
+  titre     String
+  signe     Boolean   @default(false)
+  signeParId String?
+  signeAt   DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model PersonneAutorisee {
+  id        String   @id @default(uuid())
+  enfantId  String
+  nom       String
+  lien      String?
+  telephone String?
+  createdAt DateTime @default(now())
+}
+
+model RegistreEntree {
+  id              String   @id @default(uuid())
+  registre        String
+  etablissementId String?
+  texte           String
+  auteurId        String
+  createdAt       DateTime @default(now())
+}
