@@ -5,8 +5,9 @@ const crypto = require("crypto");
 const os = require("os");
 
 // ---------- Configuration (base > variables d'environnement) ----------
-const CONFIG_KEYS = ["EMAIL_PROVIDER", "RESEND_API_KEY", "EMAIL_FROM", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "GEOCODING_API_KEY", "MSG_MFA", "MSG_ALERTE_ACCES"];
-const SECRET_KEYS = ["RESEND_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "GEOCODING_API_KEY"];
+const CONFIG_KEYS = ["EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY", "EMAIL_FROM", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "GEOCODING_API_KEY", "MSG_MFA", "MSG_ALERTE_ACCES"];
+const SECRET_KEYS = ["RESEND_API_KEY", "SENDGRID_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "GEOCODING_API_KEY"];
+
 let cache = { at: 0, v: {} };
 async function loadConfig() {
   if (Date.now() - cache.at < 30000) return cache.v;
