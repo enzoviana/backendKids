@@ -1,6 +1,6 @@
 // Double authentification sans SMS : application TOTP, appareils de confiance, passkeys.
-const crypto = require("crypto");
-const { prisma } = require("./core");
+import crypto from "crypto";
+import { prisma } from "./core.js";
 
 const sha = (s) => crypto.createHash("sha256").update(String(s)).digest("hex");
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -103,4 +103,4 @@ function rp() {
   return { rpID, rpName: "Kids'Med IA", origins };
 }
 
-module.exports = { newSecret, otpauthUrl, seal, unseal, totpCheck, verifyUserTotp, createTrustedDevice, checkTrustedDevice, methodsFor, rp, sha, TRUST_DAYS };
+export { newSecret, otpauthUrl, seal, unseal, totpCheck, verifyUserTotp, createTrustedDevice, checkTrustedDevice, methodsFor, rp, sha, TRUST_DAYS };

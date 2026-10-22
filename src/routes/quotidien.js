@@ -1,11 +1,15 @@
 // Sections, personnel, présences, transmissions, médicaments, ordonnances, documents.
-const router = require("express").Router();
-const multer = require("multer");
-const path = require("path");
-const crypto = require("crypto");
-const { prisma, ok, fail, ah, required, auth, roles, toDate, notify, isAdmin } = require("../lib/core");
-const { assertEtab, assertEnfant, enfantScope, etabScope } = require("../lib/access");
-const { UPLOAD_DIR, signFile } = require("../lib/services");
+import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
+import { prisma, ok, fail, ah, required, auth, roles, toDate, notify, isAdmin } from '../lib/core.js';
+import { assertEtab, assertEnfant, enfantScope, etabScope } from '../lib/access.js';
+import {  signFile } from '../lib/services.js';
+
+const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
 const today = () => new Date(new Date().toDateString());
 const tomorrow = () => new Date(today().getTime() + 864e5);
@@ -264,4 +268,4 @@ router.get("/documents/alertes", auth(), ah(async (req, res) => {
   ok(res, out);
 }));
 
-module.exports = router;
+export default router;

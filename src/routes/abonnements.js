@@ -1,11 +1,14 @@
 // Tarifs (forfaits par rôle), abonnements, Stripe.
-const router = require("express").Router();
-const { prisma, ok, fail, ah, required, auth, roles, isAdmin, toDate } = require("../lib/core");
-const { assertEtab } = require("../lib/access");
+import express from 'express';
+import { prisma, ok, fail, ah, required, auth, roles, isAdmin, toDate } from '../lib/core.js';
+import { assertEtab } from '../lib/access.js';
+import Stripe from 'stripe';
+
+const router = express.Router();
 
 const stripe = () => {
   if (!process.env.STRIPE_SECRET_KEY) return null;
-  return require("stripe")(process.env.STRIPE_SECRET_KEY);
+  return new Stripe(process.env.STRIPE_SECRET_KEY);
 };
 const roleKey = (r) => (r === "superadmin" ? "admin" : r);
 
@@ -108,5 +111,5 @@ async function stripeWebhook(req, res) {
   res.json({ received: true });
 }
 
-module.exports = router;
-module.exports.stripeWebhook = stripeWebhook;
+export default router;
+export { stripeWebhook };

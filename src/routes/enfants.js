@@ -1,7 +1,9 @@
-const router = require("express").Router();
-const QRCode = require("qrcode");
-const { prisma, ok, fail, ah, required, auth, roles, isAdmin, genCode, toDate, logSecu, notify, fullName } = require("../lib/core");
-const { assertEnfant, assertEtab, enfantScope } = require("../lib/access");
+import express from 'express';
+import QRCode from 'qrcode';
+import { prisma, ok, fail, ah, required, auth, roles, isAdmin, genCode, toDate, logSecu, notify, fullName } from '../lib/core.js';
+import { assertEnfant, assertEtab, enfantScope } from '../lib/access.js';
+
+const router = express.Router();
 
 const fields = (b) => ({
   prenom: b.prenom, nom: b.nom, dateNaissance: toDate(b.dateNaissance), sexe: b.sexe,
@@ -165,4 +167,4 @@ router.delete("/liaisons/:liaisonId", auth(), roles("creche"), ah(async (req, re
   ok(res, { supprime: true });
 }));
 
-module.exports = router;
+export default router;

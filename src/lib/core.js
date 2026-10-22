@@ -1,6 +1,6 @@
-const { PrismaClient } = require("@prisma/client");
-const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+import { PrismaClient } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
 
@@ -128,7 +128,7 @@ const toDate = (v) => (v ? new Date(v) : undefined);
 const genCode = (prenom = "ENF") =>
   `${prenom.normalize("NFD").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase().padEnd(3, "X")}-${crypto.randomInt(1000, 9999)}`;
 
-module.exports = {
+export {
   prisma, ok, fail, ah, HttpError, required, auth, roles, isAdmin, isDev, ADMIN, DEV,
   issueTokens, signAccess, publicUser, fullName, notify, adminIds, logSecu, toDate, genCode, withMongoIds,
 };

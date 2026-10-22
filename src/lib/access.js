@@ -1,4 +1,4 @@
-const { prisma, isAdmin, fail } = require("./core");
+import { prisma, isAdmin, fail } from "./core.js";
 
 const distanceM = (a, b, c, d) => {
   const R = 6371e3, r = (x) => (x * Math.PI) / 180;
@@ -86,4 +86,4 @@ async function verifierAcces(user, enfantId, lat, lng) {
   return { autorise: true, motif: null, distanceM: dist };
 }
 
-module.exports = { canAccessEnfant, assertEnfant, assertEtab, etabScope, enfantScope, rsaiEtabIds, verifierAcces, distanceM };
+export { canAccessEnfant, assertEnfant, assertEtab, etabScope, enfantScope, rsaiEtabIds, verifierAcces, distanceM };

@@ -1,17 +1,21 @@
 // Sécurité d'accès, logs, RGPD, console développeur, tickets, santé.
-const router = require("express").Router();
-const { execFile } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-const { prisma, ok, fail, ah, required, auth, roles, isDev, isAdmin, notify, adminIds, logSecu, fullName } = require("../lib/core");
-const { verifierAcces, canAccessEnfant } = require("../lib/access");
-const { snapshot, metrics, UPLOAD_DIR, verifyFile } = require("../lib/services");
+import express from 'express';
+import { execFile } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { prisma, ok, fail, ah, required, auth, roles, isDev, isAdmin, notify, adminIds, logSecu, fullName } from '../lib/core.js';
+import { verifierAcces, canAccessEnfant } from '../lib/access.js';
+import { snapshot, metrics,  verifyFile } from '../lib/services.js';
+
+const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
 const devOnly = (req, _res, next) => (isDev(req.user) ? next() : next(Object.assign(new Error("Réservé au rôle développeur"), { status: 403 })));
 const userSel = { select: { id: true, prenom: true, nom: true, role: true, email: true } };
 
 // ---------- Configuration fournisseurs (développeur) ----------
-const svc = require("../lib/services");
+import * as svc from '../lib/services.js';
 const mask = (v) => (v ? `${v.slice(0, 3)}••••${v.slice(-4)}` : "");
 router.get("/developer/config", auth(), devOnly, ah(async (_req, res) => {
   const out = {};
@@ -201,5 +205,5 @@ router.post("/developer/database/migrate", auth(), devOnly, ah(async (_req, res)
   res.status(r.ok ? 200 : 500).json({ success: r.ok, output: r.output });
 }));
 
-module.exports = router;
-module.exports.isAdmin = isAdmin;
+export default router;
+export { isAdmin };

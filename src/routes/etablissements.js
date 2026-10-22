@@ -1,6 +1,8 @@
-const router = require("express").Router();
-const { prisma, ok, fail, ah, required, auth, roles, isAdmin, fullName } = require("../lib/core");
-const { assertEtab, etabScope } = require("../lib/access");
+import express from 'express';
+import { prisma, ok, fail, ah, required, auth, roles, isAdmin, fullName } from '../lib/core.js';
+import { assertEtab, etabScope } from '../lib/access.js';
+
+const router = express.Router();
 
 async function geocode(adresse) {
   if (!adresse) return {};
@@ -115,4 +117,4 @@ router.post("/:etablissementId/avis-rsai", auth(), roles("rsai"), ah(async (req,
   ok(res, { id: a.id, noteMoyenne: +(g._avg.note ?? 0).toFixed(1), nbAvis: g._count }, 201);
 }));
 
-module.exports = router;
+export default router;

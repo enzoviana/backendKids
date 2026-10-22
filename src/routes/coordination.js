@@ -1,5 +1,7 @@
-const router = require("express").Router();
-const { prisma, ok, fail, ah, required, auth, roles, isAdmin, notify, adminIds, toDate } = require("../lib/core");
+import express from 'express';
+import { prisma, ok, fail, ah, required, auth, roles, isAdmin, notify, adminIds, toDate } from '../lib/core.js';
+
+const router = express.Router();
 
 const inc = { rsai: { select: { id: true, prenom: true, nom: true, email: true } }, etablissement: { select: { id: true, nom: true, adresse: true } } };
 const shape = (a) => ({ ...a, creche: a.etablissement, crecheId: a.etablissementId, rsai: a.rsai && { ...a.rsai, nom: [a.rsai.prenom, a.rsai.nom].filter(Boolean).join(" ") } });
@@ -80,4 +82,4 @@ router.get("/avis", auth(), roles("creche", "rsai"), ah(async (req, res) => {
   ok(res, await prisma.avis.findMany({ where, orderBy: { createdAt: "desc" } }));
 }));
 
-module.exports = router;
+export default router;

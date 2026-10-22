@@ -1,10 +1,21 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const morgan = require("morgan");
-const { prisma, HttpError } = require("./lib/core");
-const { metricsMiddleware } = require("./lib/services");
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import { prisma, HttpError } from './lib/core.js';
+import { metricsMiddleware } from './lib/services.js';
+import authRoutes from './routes/auth.js';
+import etablissementsRoutes from './routes/etablissements.js';
+import coordinationRoutes from './routes/coordination.js';
+import usersRoutes from './routes/users.js';
+import enfantsRoutes from './routes/enfants.js';
+import quotidienRoutes from './routes/quotidien.js';
+import communicationRoutes from './routes/communication.js';
+import abonnementsRoutes from './routes/abonnements.js';
+import adminRoutes from './routes/admin.js';
+import terrainRoutes from './routes/terrain.js';
 
 const app = express();
 app.set("trust proxy", 1);
@@ -14,24 +25,29 @@ app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true
 app.use(morgan("dev"));
 app.use(metricsMiddleware);
 
-// Webhook Stripe : corps brut, avant express.json
-app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), (req, res, next) =>
-  require("./routes/abonnements").stripeWebhook(req, res).catch(next));
+// Webhook Stripe : corps brut, AVANT express.json
+app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res, next) => {
+  try {
+    await abonnementsRoutes.stripeWebhook(req, res);
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (_req, res) => res.json({ success: true, name: "Kids'Med IA API", docs: "/api/health" }));
-app.use("/api/auth", require("./routes/auth"));
-app.use("/api/etablissements", require("./routes/etablissements"));
-app.use("/api/coordination", require("./routes/coordination"));
-app.use("/api", require("./routes/users"));
-app.use("/api", require("./routes/enfants"));
-app.use("/api", require("./routes/quotidien"));
-app.use("/api", require("./routes/communication"));
-app.use("/api", require("./routes/abonnements"));
-app.use("/api", require("./routes/admin"));
-app.use("/api", require("./routes/terrain"));
+app.use("/api/auth", authRoutes);
+app.use("/api/etablissements", etablissementsRoutes);
+app.use("/api/coordination", coordinationRoutes);
+app.use("/api", usersRoutes);
+app.use("/api", enfantsRoutes);
+app.use("/api", quotidienRoutes);
+app.use("/api", communicationRoutes);
+app.use("/api", abonnementsRoutes);
+app.use("/api", adminRoutes);
+app.use("/api", terrainRoutes);
 
 app.use("/api", (req, res) => res.status(404).json({ success: false, error: "Route non trouvée", method: req.method, path: req.originalUrl }));
 

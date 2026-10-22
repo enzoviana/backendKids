@@ -1,6 +1,11 @@
-import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email';
-import { renderTemplate, EmailTemplate } from '../utils/emailTemplates';
+import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email.js';
+import { renderTemplate, EmailTemplate } from '../utils/emailTemplates.js';
 import sgMail from '@sendgrid/mail';
+import os from 'os';
+import crypto from 'crypto';
+
+
+
 
 /**
  * Service d'envoi d'emails
@@ -576,3 +581,192 @@ class EmailService {
 }
 
 export const emailService = new EmailService();
+
+/**
+ * Wrapper function to send emails using emailService
+ * @param {string} to - Recipient email
+ * @param {string} subject - Email subject
+ * @param {string} templateOrHtml - Template name or HTML content
+ * @param {object} data - Template data
+ */
+export async function sendEmail(to, subject, templateOrHtml, data) {
+  if (data) {
+    // If data is provided, assume templateOrHtml is a template name
+    // Map old template names to new methods
+    const templateMethods = {
+      'auth-forgot-password': 'sendPasswordReset',
+      'auth-welcome': 'sendWelcome',
+      'auth-mfa-code': 'sendMFACode',
+      'rsai-affectation': 'sendRsaiAffectation',
+      'rsai-demande': 'sendRsaiDemande',
+      'rsai-avis-recu': 'sendRsaiAvisRecu',
+      'msg-nouveau-message': 'sendNewMessage',
+      'abo-facture-recue': 'sendInvoiceReceipt',
+      'doc-rappel-vaccin': 'sendVaccinReminder',
+      'doc-rappel-manquant': 'sendDocumentReminder',
+      'doc-demande-medecin': 'sendDocumentRequest',
+      'doc-ordonnance-expirante': 'sendOrdonnanceExpiration',
+      'trans-alerte-symptome': 'sendTransmissionAlert',
+      'sec-alerte-acces': 'sendSecurityAlert',
+    };
+
+    const method = templateMethods[templateOrHtml];
+    if (method && typeof emailService[method] === 'function') {
+      return emailService[method](to, data);
+    }
+  }
+
+  // If no data or template not found, use sendEmail directly
+  return emailService.sendEmail(to, subject, templateOrHtml);
+}
+
+/**
+ * Send SMS (mock implementation for now)
+ * @param {string} phoneNumber - Phone number to send SMS to
+ * @param {string} message - SMS message content
+ */
+export async function sendSms(phoneNumber, message) {
+  console.log('\n📱 ========== SMS MOCK ==========');
+  console.log(`À: ${phoneNumber}`);
+  console.log(`Message: ${message}`);
+  console.log('==================================\n');
+  return true;
+}
+
+/**
+ * Metrics middleware
+ */
+export function metricsMiddleware(req, res, next) {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${req.method}] ${req.path} - ${res.statusCode} - ${duration}ms`);
+  });
+  next();
+}
+
+/**
+ * Génère une URL d'accès pour un fichier téléversé
+ * 
+ * @param {string} filename - Nom du fichier enregistré
+ * @param {number} [expiresInSec=31536000] - Durée de validité en secondes (par défaut 1 ans)
+ * @returns {string} URL du fichier
+ */
+export function signFile(filename, expiresInSec = 31536000) {
+  if (!filename) return null;
+
+  // Si c'est déjà une URL complète (ex: Cloudinary, S3, external), la retourner telle quelle
+  if (filename.startsWith('http://') || filename.startsWith('https://')) {
+    return filename;
+  }
+
+  // Base URL de l'API / serveur Express (ex: https://kidsmed-backend.onrender.com ou http://localhost:5000)
+  const baseUrl = process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || '';
+
+  // Nettoyer le nom de fichier au cas où il contient un chemin relatif
+  const cleanFilename = filename.split('/').pop();
+
+  return `${baseUrl}/uploads/${cleanFilename}`;
+}
+
+/**
+ * Configuration getter (mock implementation)
+ * @param {string} key - Configuration key
+ * @param {string} defaultValue - Default value if key not found
+ */
+export async function cfg(key, defaultValue) {
+  // Mock implementation - in production, this might fetch from database
+  return defaultValue;
+}
+
+/**
+ * Objet pour enregistrer les métriques d'appels des endpoints
+ */
+export const metrics = {
+  perEndpoint: new Map(),
+};
+
+
+/**
+ * Génère un instantané (snapshot) de l'état système et des métriques du serveur
+ * 
+ * @returns {object} Données de performance et état du serveur
+ */
+export function snapshot() {
+  const now = Date.now();
+  let totalCalls = 0;
+  let totalMs = 0;
+  let calls24h = 0;
+
+  // Calculer les statistiques globales à partir des données de metrics.perEndpoint
+  if (metrics && metrics.perEndpoint) {
+    for (const entry of metrics.perEndpoint.values()) {
+      totalCalls += entry.n;
+      totalMs += entry.totalMs;
+      calls24h += entry.calls.filter((t) => now - t < 864e5).length;
+    }
+  }
+
+  const memoryUsage = process.memoryUsage();
+
+  return {
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    system: {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+      cpuLoad: os.loadavg(),
+      freeMemoryMB: Math.round(os.freemem() / 1024 / 1024),
+      totalMemoryMB: Math.round(os.totalmem() / 1024 / 1024),
+    },
+    process: {
+      memoryRssMB: Math.round(memoryUsage.rss / 1024 / 1024),
+      heapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      heapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+    },
+    requests: {
+      totalCalls,
+      calls24h,
+      avgResponseTimeMs: totalCalls > 0 ? Math.round(totalMs / totalCalls) : 0,
+      activeEndpoints: metrics?.perEndpoint?.size || 0,
+    },
+  };
+}
+const FILE_SECRET = process.env.FILE_SIGN_SECRET || process.env.JWT_SECRET || 'kidsmed-secret-key-file-signing';
+/**
+ * Vérifie l'authenticité et la validité temporelle d'un fichier demandé via URL signée
+ * 
+ * @param {string} name - Nom du fichier
+ * @param {string|number} exp - Timestamp d'expiration (en secondes)
+ * @param {string} sig - Signature HMAC envoyée dans la requête
+ * @returns {boolean} true si le lien est valide et non expiré
+ */
+export function verifyFile(name, exp, sig) {
+  // 1. Vérifier la présence des paramètres requis
+  if (!name || !exp || !sig) {
+    return false;
+  }
+
+  // 2. Vérifier l'expiration
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(exp) < now) {
+    return false;
+  }
+
+  // 3. Recalculer la signature HMAC
+  const expectedSig = crypto
+    .createHmac('sha256', FILE_SECRET)
+    .update(`${name}:${exp}`)
+    .digest('hex');
+
+  // 4. Comparaison sécurisée contre les attaques par analyse temporelle (timing attacks)
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(sig, 'hex'),
+      Buffer.from(expectedSig, 'hex')
+    );
+  } catch (_e) {
+    return false;
+  }
+}

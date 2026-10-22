@@ -1,10 +1,12 @@
-const router = require("express").Router();
-const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
-const { prisma, ok, fail, ah, required, auth, issueTokens, signAccess, publicUser, logSecu } = require("../lib/core");
-const { sendSms, sendEmail } = require("../lib/services");
-const mfa = require("../lib/mfa");
-const wa = () => require("@simplewebauthn/server");
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { prisma, ok, fail, ah, required, auth, issueTokens, signAccess, publicUser, logSecu } from '../lib/core.js';
+import { sendSms, sendEmail } from '../lib/services.js';
+import * as mfa from '../lib/mfa.js';
+import * as wa from '@simplewebauthn/server';
+
+const router = express.Router();
 
 const hash = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
@@ -42,11 +44,13 @@ router.post("/login", ah(async (req, res) => {
     }
   }
   // Appareil de confiance (case « Se souvenir de cet appareil ») : pas de 2e étape pendant 30 jours
-  if (await mfa.checkTrustedDevice(user, req.body.deviceToken)) {
+  const trustedDeviceCheck = await mfa.checkTrustedDevice(user, req.body.deviceToken);
+  if (trustedDeviceCheck) {
     await logSecu({ ip: req.ip, headers: req.headers, user }, "connexion", { motif: "appareil_confiance" });
     return ok(res, { user: publicUser(user), ...(await issueTokens(user)), mfaRequired: false });
   }
-  ok(res, { user: publicUser(user), accessToken: signAccess(user, false), mfaRequired: true, methodes: await mfa.methodsFor(user) });
+  const methods = await mfa.methodsFor(user);
+  ok(res, { user: publicUser(user), accessToken: signAccess(user, false), mfaRequired: true, methodes: methods });
 }));
 
 // Étape 2 : envoi du code SMS
@@ -58,7 +62,7 @@ router.post("/mfa/send-code", auth({ allowPreMfa: true }), ah(async (req, res) =
     await sendEmail(req.user.email, "Votre code de connexion Kids'Med", "auth-mfa-code",
       { prenom: req.user.prenom, code, expiration: "5 minutes" }, `Votre code de connexion Kids'Med : ${code} (valable 5 minutes).`);
   } else {
-    const { cfg } = require("../lib/services"); const t = await cfg("MSG_MFA", "Kids'Med : votre code de connexion est {code} (valable 5 min)."); await sendSms(req.user.telephone, t.replace("{code}", code));
+    const { cfg } = await import('../lib/services.js'); const t = await cfg("MSG_MFA", "Kids'Med : votre code de connexion est {code} (valable 5 min)."); await sendSms(req.user.telephone, t.replace("{code}", code));
   }
   ok(res, { envoye: true, canal, telephone: req.user.telephone ? req.user.telephone.slice(-2) : null });
 }));
@@ -86,7 +90,7 @@ router.post("/mfa/passkey/options", auth({ allowPreMfa: true }), ah(async (req, 
   const keys = await prisma.passkey.findMany({ where: { userId: req.user.id } });
   if (!keys.length) fail(400, "Aucune passkey enregistrée sur ce compte");
   const { rpID } = mfa.rp();
-  const opts = await wa().generateAuthenticationOptions({ rpID, userVerification: "preferred",
+  const opts = await wa.generateAuthenticationOptions({ rpID, userVerification: "preferred",
     allowCredentials: keys.map((k) => ({ id: k.credentialId, transports: k.transports ?? undefined })) });
   await prisma.user.update({ where: { id: req.user.id }, data: { webauthnChallenge: opts.challenge } });
   ok(res, opts);
@@ -99,7 +103,7 @@ router.post("/mfa/passkey/verify", auth({ allowPreMfa: true }), ah(async (req, r
   const { rpID, origins } = mfa.rp();
   let v;
   try {
-    v = await wa().verifyAuthenticationResponse({ response: req.body.response, expectedChallenge: u.webauthnChallenge, expectedOrigin: origins, expectedRPID: rpID,
+    v = await wa.verifyAuthenticationResponse({ response: req.body.response, expectedChallenge: u.webauthnChallenge, expectedOrigin: origins, expectedRPID: rpID,
       authenticator: { credentialID: key.credentialId, credentialPublicKey: Buffer.from(key.publicKey, "base64url"), counter: key.counter, transports: key.transports ?? undefined } });
   } catch (e) { fail(401, "Vérification de la passkey impossible"); }
   if (!v.verified) fail(401, "Passkey refusée");
@@ -143,7 +147,7 @@ router.delete("/totp", auth(), ah(async (req, res) => {
 router.post("/passkeys/register-options", auth(), ah(async (req, res) => {
   const keys = await prisma.passkey.findMany({ where: { userId: req.user.id } });
   const { rpID, rpName } = mfa.rp();
-  const opts = await wa().generateRegistrationOptions({ rpName, rpID, userName: req.user.email,
+  const opts = await wa.generateRegistrationOptions({ rpName, rpID, userName: req.user.email,
     userID: new TextEncoder().encode(req.user.id), userDisplayName: `${req.user.prenom} ${req.user.nom}`.trim() || req.user.email,
     attestationType: "none", excludeCredentials: keys.map((k) => ({ id: k.credentialId })),
     authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" } });
@@ -155,7 +159,7 @@ router.post("/passkeys", auth(), ah(async (req, res) => {
   const { rpID, origins } = mfa.rp();
   let v;
   try {
-    v = await wa().verifyRegistrationResponse({ response: req.body.response, expectedChallenge: req.user.webauthnChallenge ?? "", expectedOrigin: origins, expectedRPID: rpID });
+    v = await wa.verifyRegistrationResponse({ response: req.body.response, expectedChallenge: req.user.webauthnChallenge ?? "", expectedOrigin: origins, expectedRPID: rpID });
   } catch (e) { fail(400, "Enregistrement de la passkey impossible"); }
   if (!v.verified || !v.registrationInfo) fail(400, "Passkey refusée");
   const i = v.registrationInfo;
@@ -228,4 +232,4 @@ router.post("/reset-password", ah(async (req, res) => {
   res.json({ success: true, message: "Mot de passe modifié" });
 }));
 
-module.exports = router;
+export default router;

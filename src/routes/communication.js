@@ -1,11 +1,14 @@
 // Messagerie, notifications, diagnostics IA, alertes symptômes.
-const router = require("express").Router();
-const multer = require("multer");
-const path = require("path");
-const crypto = require("crypto");
-const { prisma, ok, fail, ah, required, auth, roles, notify, fullName } = require("../lib/core");
-const { assertEnfant, enfantScope, assertEtab } = require("../lib/access");
-const { UPLOAD_DIR } = require("../lib/services");
+import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
+import { prisma, ok, fail, ah, required, auth, roles, notify, fullName } from '../lib/core.js';
+import { assertEnfant, enfantScope, assertEtab } from '../lib/access.js';
+
+const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
 const userSel = { select: { id: true, prenom: true, nom: true, email: true, role: true } };
 
@@ -130,4 +133,4 @@ router.get("/alertes/etablissement/:etablissementId", auth(), ah(async (req, res
   ok(res, a.map((x) => ({ ...x, enfant: enf.find((e) => e.id === x.enfantId) })));
 }));
 
-module.exports = router;
+export default router;

@@ -1,7 +1,9 @@
 // Flux terrain : absences, températures, émargement médicaments, autorisations, sorties, registres, mémos.
-const router = require("express").Router();
-const { prisma, ok, fail, ah, required, auth, roles, toDate, notify, fullName } = require("../lib/core");
-const { assertEnfant, assertEtab, rsaiEtabIds, distanceM } = require("../lib/access");
+import express from 'express';
+import { prisma, ok, fail, ah, required, auth, roles, toDate, notify, fullName } from '../lib/core.js';
+import { assertEnfant, assertEtab, rsaiEtabIds, distanceM } from '../lib/access.js';
+
+const router = express.Router();
 
 const jour = (d = new Date()) => d.toISOString().slice(0, 10);
 async function staffIds(etablissementId) {
@@ -128,4 +130,4 @@ router.post("/securite/verifier-position", auth(), roles("rsai", "creche"), ah(a
   ok(res, { autorise, ...best });
 }));
 
-module.exports = router;
+export default router;

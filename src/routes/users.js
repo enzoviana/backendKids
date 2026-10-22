@@ -1,10 +1,14 @@
-const router = require("express").Router();
-const bcrypt = require("bcryptjs");
-const multer = require("multer");
-const path = require("path");
-const crypto = require("crypto");
-const { prisma, ok, fail, ah, required, auth, roles, publicUser, isAdmin, fullName } = require("../lib/core");
-const { UPLOAD_DIR, signFile } = require("../lib/services");
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
+import { prisma, ok, fail, ah, required, auth, roles, publicUser, isAdmin, fullName } from '../lib/core.js';
+import {  signFile } from '../lib/services.js';
+
+const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
 const upload = multer({
   storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (_r, f, cb) => cb(null, crypto.randomUUID() + path.extname(f.originalname)) }),
@@ -21,7 +25,7 @@ router.get("/users", auth(), roles(), ah(async (req, res) => {
 
 router.post("/users", auth(), roles(), ah(async (req, res) => {
   required(req.body, ["email", "role"]);
-  { const { DEV, isDev } = require("../lib/core"); if (DEV.includes(req.body.role) && !isDev(req.user)) fail(403, "Seul un développeur peut créer un compte développeur"); }
+  { const { DEV, isDev } = await import('../lib/core.js'); if (DEV.includes(req.body.role) && !isDev(req.user)) fail(403, "Seul un développeur peut créer un compte développeur"); }
   const { password, motDePasse, ...d } = req.body;
   const pwd = password || motDePasse || crypto.randomBytes(6).toString("base64url");
   const u = await prisma.user.create({
@@ -57,7 +61,8 @@ router.get("/users/export-data", auth(), ah(async (req, res) => {
 
 router.post("/enfants/:enfantId/photo", auth(), upload.single("photo"), ah(async (req, res) => {
   if (!req.file) fail(400, "Champs manquants : photo (jpg/png/webp ≤ 2 Mo)");
-  await require("../lib/access").assertEnfant(req.user, req.params.enfantId);
+  const { assertEnfant } = await import('../lib/access.js');
+  await assertEnfant(req.user, req.params.enfantId);
   const photoUrl = signFile(req.file.filename, 3600 * 24 * 365);
   await prisma.enfant.update({ where: { id: req.params.enfantId }, data: { photoUrl } });
   ok(res, { photoUrl });
@@ -80,7 +85,7 @@ router.put("/users/:userId/profile", auth(), roles(), ah(async (req, res) => {
 async function guardTarget(req) {
   const t = await prisma.user.findUnique({ where: { id: req.params.userId } });
   if (!t) fail(404, "Utilisateur introuvable");
-  const { DEV, isDev } = require("../lib/core");
+  const { DEV, isDev } = await import('../lib/core.js');
   if (DEV.includes(t.role) && !isDev(req.user)) fail(403, "Seul un développeur peut modifier ce compte");
   if (req.body?.role && DEV.includes(req.body.role) && !isDev(req.user)) fail(403, "Seul un développeur peut attribuer ce rôle");
   return t;
@@ -89,7 +94,7 @@ router.post("/users/:userId/reset-password", auth(), roles(), ah(async (req, res
   const t = await guardTarget(req);
   const pwd = crypto.randomBytes(6).toString("base64url");
   await prisma.user.update({ where: { id: t.id }, data: { motDePasseHash: await bcrypt.hash(pwd, 10) } });
-  const { sendEmail } = require("../lib/services");
+  const { sendEmail } = await import('../lib/services.js');
   await sendEmail(t.email, "Votre nouveau mot de passe Kids'Med", "mot-de-passe-oublie", { prenom: t.prenom, code: pwd }, `Votre nouveau mot de passe : ${pwd}`).catch(() => {});
   ok(res, { envoye: true });
 }));
@@ -217,5 +222,5 @@ router.get("/parents/me/alertes", auth(), ah(async (req, res) => {
   ].sort((x, y) => +y.createdAt - +x.createdAt));
 }));
 
-module.exports = router;
-module.exports.isAdmin = isAdmin;
+export default router;
+export { isAdmin };
