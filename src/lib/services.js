@@ -81,82 +81,153 @@ class EmailService {
   /**
    * Envoyer un email
    */
-  async sendEmail(to, subject, html) {
-    // Initialiser le service si ce n'est pas déjà fait
-    if (!this.initialized) {
-      await this.initialize();
-    }
+async sendEmail(to, subject, html) {
+  console.log('\n🔍 ========== DEBUG SEND EMAIL ==========');
+  console.log('[DEBUG] Destinataire (to):', to);
+  console.log('[DEBUG] Sujet (subject):', subject);
+  console.log('[DEBUG] HTML présent:', Boolean(html));
+  console.log('[DEBUG] Longueur HTML:', html?.length ?? 0);
+  console.log('[DEBUG] initialized avant init:', this.initialized);
 
-    try {
-      // Mode MOCK : afficher dans la console (explicite ou auto si pas de provider)
-      if (emailConfig.mockMode || (!this.useSendGrid && !this.transporter)) {
-        console.log('\n📧 ========== EMAIL MOCK ==========');
-        console.log(`À: ${to}`);
-        console.log(`Sujet: ${subject}`);
-        console.log(`De: ${emailConfig.from.name} <${emailConfig.from.email}>`);
-        console.log('HTML: [Contenu masqué - voir template]');
-        console.log('====================================\n');
-        return true;
-      }
-
-      // Mode SENDGRID : envoyer via API SendGrid
-      if (this.useSendGrid) {
-        const msg = {
-          to,
-          from: {
-            email: emailConfig.from.email,
-            name: emailConfig.from.name,
-          },
-          subject,
-          html,
-        };
-
-        await sgMail.send(msg);
-        console.log(`✅ Email envoyé via SendGrid à ${to}`);
-        return true;
-      }
-
-      // Mode SMTP : envoyer via transporteur SMTP
-      if (this.transporter) {
-        const info = await this.transporter.sendMail({
-          from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
-          to,
-          subject,
-          html,
-        });
-
-        console.log(`✅ Email envoyé via SMTP à ${to} (ID: ${info.messageId})`);
-        return true;
-      }
-
-      // Fallback si aucun provider configuré
-      console.error('❌ Aucun provider email configuré');
-      console.log('💡 Suggestion: Configurez SENDGRID_API_KEY ou activez EMAIL_MOCK_MODE=true');
-      return false;
-    } catch (error) {
-      // Log détaillé mais ne pas crasher
-      console.error(`❌ Erreur lors de l'envoi de l'email à ${to}:`);
-      console.error(`   Provider: ${this.useSendGrid ? 'SendGrid' : 'SMTP'}`);
-      console.error(`   Code: ${error.code || 'N/A'}`);
-      console.error(`   Message: ${error.message || 'Unknown error'}`);
-
-      // Suggestions selon le type d'erreur et le provider
-      if (this.useSendGrid) {
-        console.error('   💡 Suggestion: Vérifiez votre SENDGRID_API_KEY');
-        if (error.response?.body) {
-          console.error('   Détails SendGrid:', JSON.stringify(error.response.body, null, 2));
-        }
-      } else {
-        if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION' || error.code === 'ESOCKET' || error.code === 'ENETUNREACH') {
-          console.error('   💡 Suggestion: Utilisez SendGrid (EMAIL_PROVIDER=sendgrid) ou activez EMAIL_MOCK_MODE=true');
-        } else if (error.code === 'EAUTH') {
-          console.error('   💡 Suggestion: Vérifiez vos identifiants SMTP (SMTP_USER et SMTP_PASSWORD)');
-        }
-      }
-
-      return false;
-    }
+  // Initialiser le service si ce n'est pas déjà fait
+  if (!this.initialized) {
+    console.log('[DEBUG] Initialisation du service email...');
+    await this.initialize();
+    console.log('[DEBUG] initialized après init:', this.initialized);
   }
+
+  try {
+    // Afficher la configuration réellement utilisée
+    console.log('\n🔧 [DEBUG] Configuration email active');
+    console.log('[DEBUG] mockMode:', emailConfig.mockMode);
+    console.log('[DEBUG] from.name:', emailConfig.from?.name);
+    console.log('[DEBUG] from.email:', emailConfig.from?.email);
+    console.log('[DEBUG] useSendGrid:', this.useSendGrid);
+    console.log('[DEBUG] transporter disponible:', Boolean(this.transporter));
+
+    // Mode MOCK
+    if (emailConfig.mockMode || (!this.useSendGrid && !this.transporter)) {
+      console.log('\n📧 ========== EMAIL MOCK ==========');
+      console.log('[MOCK] À:', to);
+      console.log('[MOCK] Sujet:', subject);
+      console.log(
+        '[MOCK] De:',
+        `${emailConfig.from.name} <${emailConfig.from.email}>`
+      );
+      console.log('[MOCK] HTML: [Contenu masqué - voir template]');
+      console.log('====================================\n');
+      return true;
+    }
+
+    // Mode SENDGRID
+    if (this.useSendGrid) {
+      const msg = {
+        to,
+        from: {
+          email: emailConfig.from.email,
+          name: emailConfig.from.name,
+        },
+        subject,
+        html,
+      };
+
+      console.log('\n📤 ========== SENDGRID PAYLOAD ==========');
+      console.log('[SENDGRID] to:', msg.to);
+      console.log('[SENDGRID] from.email:', msg.from.email);
+      console.log('[SENDGRID] from.name:', msg.from.name);
+      console.log('[SENDGRID] subject:', msg.subject);
+      console.log('[SENDGRID] html présent:', Boolean(msg.html));
+      console.log('[SENDGRID] html longueur:', msg.html?.length ?? 0);
+      console.log('[SENDGRID] payload (sans HTML):', {
+        to: msg.to,
+        from: msg.from,
+        subject: msg.subject,
+        htmlLength: msg.html?.length ?? 0,
+      });
+      console.log('==========================================\n');
+
+      const [response] = await sgMail.send(msg);
+
+      console.log('✅ Email envoyé via SendGrid');
+      console.log('[SENDGRID] Destinataire:', to);
+      console.log('[SENDGRID] Statut HTTP:', response?.statusCode);
+      console.log('[SENDGRID] Message ID:', response?.headers?.['x-message-id'] ?? 'N/A');
+
+      return true;
+    }
+
+    // Mode SMTP
+    if (this.transporter) {
+      const smtpPayload = {
+        from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
+        to,
+        subject,
+        html,
+      };
+
+      console.log('\n📤 ========== SMTP PAYLOAD ==========');
+      console.log('[SMTP] from:', smtpPayload.from);
+      console.log('[SMTP] to:', smtpPayload.to);
+      console.log('[SMTP] subject:', smtpPayload.subject);
+      console.log('[SMTP] html présent:', Boolean(smtpPayload.html));
+      console.log('[SMTP] html longueur:', smtpPayload.html?.length ?? 0);
+      console.log('=====================================\n');
+
+      const info = await this.transporter.sendMail(smtpPayload);
+
+      console.log('✅ Email envoyé via SMTP');
+      console.log('[SMTP] Destinataire:', to);
+      console.log('[SMTP] Message ID:', info.messageId);
+      console.log('[SMTP] Réponse serveur:', info.response);
+
+      return true;
+    }
+
+    // Aucun provider configuré
+    console.error('❌ Aucun provider email configuré');
+    console.log('[DEBUG] useSendGrid:', this.useSendGrid);
+    console.log('[DEBUG] transporter disponible:', Boolean(this.transporter));
+    console.log('💡 Configurez SENDGRID_API_KEY ou EMAIL_MOCK_MODE=true');
+
+    return false;
+
+  } catch (error) {
+    console.error('\n❌ ========== ERREUR ENVOI EMAIL ==========');
+    console.error('[ERROR] Destinataire:', to);
+    console.error('[ERROR] Sujet:', subject);
+    console.error('[ERROR] Provider:', this.useSendGrid ? 'SendGrid' : 'SMTP');
+    console.error('[ERROR] Code:', error.code || 'N/A');
+    console.error('[ERROR] Message:', error.message || 'Unknown error');
+    console.error('[ERROR] HTTP Status:', error.response?.statusCode ?? 'N/A');
+
+    console.error('[ERROR] Adresse from configurée:', emailConfig.from?.email);
+    console.error('[ERROR] Nom from configuré:', emailConfig.from?.name);
+
+    if (this.useSendGrid && error.response?.body) {
+      console.error(
+        '[ERROR] Détails SendGrid:',
+        JSON.stringify(error.response.body, null, 2)
+      );
+    }
+
+    if (this.useSendGrid) {
+      console.error(
+        '💡 Vérifiez que emailConfig.from.email correspond exactement à un expéditeur vérifié dans SendGrid.'
+      );
+    } else if (
+      ['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ENETUNREACH'].includes(error.code)
+    ) {
+      console.error('💡 Vérifiez la connexion SMTP ou utilisez SendGrid.');
+    } else if (error.code === 'EAUTH') {
+      console.error('💡 Vérifiez les identifiants SMTP.');
+    }
+
+    console.error('============================================\n');
+
+    return false;
+  }
+}
+
 
   /**
    * EMAIL 1: Réinitialisation du mot de passe
