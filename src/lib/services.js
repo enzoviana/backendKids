@@ -1,6 +1,7 @@
 import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email.js';
 import { renderTemplate, EmailTemplate } from '../utils/emailTemplates.js';
 import sgMail from '@sendgrid/mail';
+import twilio from 'twilio';
 import os from 'os';
 import crypto from 'crypto';
 
@@ -702,6 +703,9 @@ export async function clearConfigCache() {
   // Réinitialiser le service email pour qu'il recharge la config
   await emailService.reinitialize();
 
+  // Réinitialiser le service SMS pour qu'il recharge la config
+  await smsService.reinitialize();
+
   console.log('✅ Configuration rechargée');
 }
 
@@ -744,16 +748,154 @@ export async function sendEmail(to, subject, templateOrHtml, data) {
 }
 
 /**
- * Send SMS (mock implementation for now)
- * @param {string} phoneNumber - Phone number to send SMS to
- * @param {string} message - SMS message content
+ * Service d'envoi de SMS via Twilio
+ */
+class SMSService {
+  client = null;
+  twilioFrom = null;
+  initialized = false;
+
+  constructor() {
+    console.log('📱 SMSService créé - Configuration sera chargée au premier envoi');
+  }
+
+  /**
+   * Initialise le service SMS avec les configurations depuis la BDD
+   */
+  async initialize() {
+    try {
+      // Récupérer les configurations depuis la BDD
+      const accountSid = await cfg('TWILIO_ACCOUNT_SID', process.env.TWILIO_ACCOUNT_SID || '');
+      const authToken = await cfg('TWILIO_AUTH_TOKEN', process.env.TWILIO_AUTH_TOKEN || '');
+      const twilioFrom = await cfg('TWILIO_FROM', process.env.TWILIO_FROM || '');
+
+      console.log('\n🔍 ========== DEBUG SMS INITIALIZATION ==========');
+      console.log('[DEBUG] TWILIO_ACCOUNT_SID présent:', Boolean(accountSid && accountSid.trim()));
+      console.log('[DEBUG] TWILIO_AUTH_TOKEN présent:', Boolean(authToken && authToken.trim()));
+      console.log('[DEBUG] TWILIO_FROM:', twilioFrom || 'non configuré');
+
+      // Vérifier si toutes les configurations sont présentes
+      if (!accountSid || !accountSid.trim() || !authToken || !authToken.trim() || !twilioFrom || !twilioFrom.trim()) {
+        console.warn('⚠️ Configuration Twilio incomplète');
+        console.warn('📱 Basculement automatique en MODE MOCK - Les SMS seront affichés dans la console');
+        console.warn('💡 Pour utiliser Twilio: Configurez TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN et TWILIO_FROM dans /api/developer/config');
+        this.client = null;
+        this.twilioFrom = null;
+        this.initialized = true;
+        return;
+      }
+
+      // Initialiser le client Twilio
+      this.client = twilio(accountSid, authToken);
+      this.twilioFrom = twilioFrom;
+      this.initialized = true;
+
+      console.log('✅ Twilio initialisé - Les SMS seront envoyés via Twilio API');
+      console.log('================================================\n');
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'initialisation de Twilio:', error.message);
+      console.warn('📱 Basculement automatique en MODE MOCK');
+      this.client = null;
+      this.twilioFrom = null;
+      this.initialized = true;
+    }
+  }
+
+  /**
+   * Réinitialise le service SMS (utile après un changement de config)
+   */
+  async reinitialize() {
+    this.initialized = false;
+    this.client = null;
+    this.twilioFrom = null;
+    await this.initialize();
+  }
+
+  /**
+   * Envoie un SMS
+   * @param {string} phoneNumber - Numéro de téléphone au format international (ex: +33612345678)
+   * @param {string} message - Message à envoyer
+   */
+  async send(phoneNumber, message) {
+    console.log('\n🔍 ========== DEBUG SEND SMS ==========');
+    console.log('[DEBUG] Destinataire (phoneNumber):', phoneNumber);
+    console.log('[DEBUG] Message:', message);
+    console.log('[DEBUG] initialized avant init:', this.initialized);
+
+    // Initialiser le service si ce n'est pas déjà fait
+    if (!this.initialized) {
+      console.log('[DEBUG] Initialisation du service SMS...');
+      await this.initialize();
+      console.log('[DEBUG] initialized après init:', this.initialized);
+    }
+
+    try {
+      console.log('\n🔧 [DEBUG] Configuration SMS active');
+      console.log('[DEBUG] Client Twilio disponible:', Boolean(this.client));
+      console.log('[DEBUG] TWILIO_FROM:', this.twilioFrom);
+
+      // Mode MOCK si pas de client Twilio
+      if (!this.client || !this.twilioFrom) {
+        console.log('\n📱 ========== SMS MOCK ==========');
+        console.log('[MOCK] À:', phoneNumber);
+        console.log('[MOCK] De:', this.twilioFrom || 'non configuré');
+        console.log('[MOCK] Message:', message);
+        console.log('==================================\n');
+        return true;
+      }
+
+      // Envoi via Twilio
+      console.log('\n📤 ========== TWILIO PAYLOAD ==========');
+      console.log('[TWILIO] to:', phoneNumber);
+      console.log('[TWILIO] from:', this.twilioFrom);
+      console.log('[TWILIO] body:', message);
+      console.log('========================================\n');
+
+      const twilioMessage = await this.client.messages.create({
+        body: message,
+        from: this.twilioFrom,
+        to: phoneNumber,
+      });
+
+      console.log('✅ SMS envoyé via Twilio');
+      console.log('[TWILIO] Destinataire:', phoneNumber);
+      console.log('[TWILIO] SID:', twilioMessage.sid);
+      console.log('[TWILIO] Status:', twilioMessage.status);
+
+      return true;
+    } catch (error) {
+      console.error('\n❌ ========== ERREUR ENVOI SMS ==========');
+      console.error('[ERROR] Destinataire:', phoneNumber);
+      console.error('[ERROR] Message:', message);
+      console.error('[ERROR] Code:', error.code || 'N/A');
+      console.error('[ERROR] Message d\'erreur:', error.message || 'Unknown error');
+      console.error('[ERROR] Status:', error.status || 'N/A');
+
+      if (error.code === 21211) {
+        console.error('💡 Le numéro de téléphone est invalide. Vérifiez qu\'il est au format international (ex: +33612345678)');
+      } else if (error.code === 21608) {
+        console.error('💡 Le numéro FROM n\'est pas vérifié dans Twilio. Vérifiez votre configuration Twilio.');
+      } else if (error.code === 20003) {
+        console.error('💡 Authentification Twilio échouée. Vérifiez vos identifiants ACCOUNT_SID et AUTH_TOKEN.');
+      }
+
+      console.error('============================================\n');
+
+      return false;
+    }
+  }
+}
+
+// Instance unique du service SMS
+const smsService = new SMSService();
+
+/**
+ * Envoie un SMS via Twilio
+ * @param {string} phoneNumber - Numéro de téléphone au format international (ex: +33612345678)
+ * @param {string} message - Message à envoyer
  */
 export async function sendSms(phoneNumber, message) {
-  console.log('\n📱 ========== SMS MOCK ==========');
-  console.log(`À: ${phoneNumber}`);
-  console.log(`Message: ${message}`);
-  console.log('==================================\n');
-  return true;
+  return smsService.send(phoneNumber, message);
 }
 
 /**
