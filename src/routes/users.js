@@ -95,7 +95,13 @@ router.post("/users/:userId/reset-password", auth(), roles(), ah(async (req, res
   const pwd = crypto.randomBytes(6).toString("base64url");
   await prisma.user.update({ where: { id: t.id }, data: { motDePasseHash: await bcrypt.hash(pwd, 10) } });
   const { sendEmail } = await import('../lib/services.js');
-  await sendEmail(t.email, "Votre nouveau mot de passe Kids'Med", "mot-de-passe-oublie", { prenom: t.prenom, code: pwd }, `Votre nouveau mot de passe : ${pwd}`).catch(() => {});
+  await sendEmail(t.email, "Votre nouveau mot de passe Kids'Med", "mot-de-passe-oublie", {
+    prenom: t.prenom,
+    nom: t.nom,
+    temporaryPassword: pwd
+  }).catch((err) => {
+    console.error('Erreur lors de l\'envoi de l\'email de réinitialisation:', err);
+  });
   ok(res, { envoye: true });
 }));
 router.patch("/users/:userId/status", auth(), roles(), ah(async (req, res) => {

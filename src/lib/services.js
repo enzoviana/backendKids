@@ -689,6 +689,102 @@ async sendEmail(to, subject, html) {
 
     return this.sendEmail(to, 'Votre compte Kids\'Med IA a été créé', html);
   }
+
+  /**
+   * EMAIL 16: Réinitialisation de mot de passe par administrateur
+   * @param {string} to
+   * @param {{ prenom: string, nom: string, temporaryPassword: string }} data
+   */
+  async sendTemporaryPassword(to, data) {
+    console.log('📧 EmailService.sendTemporaryPassword appelé:', {
+      to,
+      prenom: data.prenom,
+      nom: data.nom,
+      mockMode: emailConfig.mockMode,
+      hasTransporter: !!this.transporter,
+    });
+
+    const lien_action = emailConfig.urls.login;
+
+    // Template HTML pour le mot de passe temporaire réinitialisé par admin
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nouveau mot de passe - Kids'Med IA</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Kids'Med IA</h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 40px 30px;">
+              <h2 style="color: #333333; margin: 0 0 20px 0; font-size: 22px;">Bonjour ${data.prenom} ${data.nom},</h2>
+
+              <p style="color: #666666; line-height: 1.6; margin: 0 0 20px 0;">
+                Votre mot de passe <strong>Kids'Med IA</strong> a été réinitialisé par un administrateur.
+              </p>
+
+              <div style="background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0 0 10px 0; color: #333333; font-weight: bold;">Votre nouveau mot de passe temporaire :</p>
+                <div style="background-color: #fff; border: 2px dashed #667eea; padding: 15px; margin-top: 10px; text-align: center; border-radius: 4px;">
+                  <code style="font-size: 18px; color: #667eea; font-weight: bold; letter-spacing: 1px;">${data.temporaryPassword}</code>
+                </div>
+              </div>
+
+              <div style="background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0; color: #856404; font-size: 14px;">
+                  ⚠️ <strong>Important :</strong> Pour votre sécurité, vous devrez changer ce mot de passe lors de votre prochaine connexion.
+                </p>
+              </div>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${lien_action}" style="display: inline-block; background-color: #667eea; color: #ffffff; text-decoration: none; padding: 15px 40px; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                  Se connecter maintenant
+                </a>
+              </div>
+
+              <p style="color: #999999; font-size: 12px; margin: 20px 0 0 0;">
+                Si vous n'avez pas demandé cette réinitialisation, veuillez contacter notre support immédiatement.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+              <p style="margin: 0 0 10px 0; color: #999999; font-size: 12px;">
+                © ${new Date().getFullYear()} Kids'Med IA - Tous droits réservés
+              </p>
+              <p style="margin: 0; color: #999999; font-size: 12px;">
+                <a href="${emailConfig.urls.support}" style="color: #667eea; text-decoration: none;">Support</a> •
+                <a href="${emailConfig.urls.preferences}" style="color: #667eea; text-decoration: none;">Préférences</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `.trim();
+
+    return this.sendEmail(to, 'Votre nouveau mot de passe Kids\'Med IA', html);
+  }
 }
 
 export const emailService = new EmailService();
@@ -735,6 +831,7 @@ export async function sendEmail(to, subject, templateOrHtml, data) {
       'doc-ordonnance-expirante': 'sendOrdonnanceExpiration',
       'trans-alerte-symptome': 'sendTransmissionAlert',
       'sec-alerte-acces': 'sendSecurityAlert',
+      'mot-de-passe-oublie': 'sendTemporaryPassword',
     };
 
     const method = templateMethods[templateOrHtml];
