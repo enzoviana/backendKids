@@ -13,41 +13,80 @@ import crypto from 'crypto';
 class EmailService {
   transporter = null;
   useSendGrid = false;
+  initialized = false;
 
   constructor() {
+    // L'initialisation sera faite de manière lazy au premier envoi
+    console.log('📧 EmailService créé - Configuration sera chargée au premier envoi');
+  }
+
+  /**
+   * Initialise ou réinitialise le service email avec la config actuelle
+   */
+  async initialize() {
+    // Charger la configuration depuis la DB si disponible
+    const sendgridKey = await cfg('SENDGRID_API_KEY', emailConfig.sendgrid.apiKey);
+    const provider = await cfg('EMAIL_PROVIDER', emailConfig.provider);
+    const mockMode = emailConfig.mockMode || process.env.EMAIL_MOCK_MODE === 'true';
+
     // Mode MOCK activé explicitement
-    if (emailConfig.mockMode) {
-      console.log('📧 Mode MOCK activé explicitement - Les emails seront affichés dans la console');
+    if (mockMode) {
+      console.log('📧 Mode MOCK activé - Les emails seront affichés dans la console');
+      this.useSendGrid = false;
+      this.transporter = null;
+      this.initialized = true;
       return;
     }
 
     // Configuration du provider d'emails
-    if (emailConfig.provider === 'sendgrid') {
+    if (provider === 'sendgrid') {
       // Tenter de configurer SendGrid
-      if (emailConfig.sendgrid.apiKey) {
+      if (sendgridKey && sendgridKey.trim()) {
         this.useSendGrid = true;
-        sgMail.setApiKey(emailConfig.sendgrid.apiKey);
-        console.log('✅ SendGrid initialisé - Les emails seront envoyés via SendGrid API');
+        sgMail.setApiKey(sendgridKey);
+        console.log('✅ SendGrid initialisé avec clé depuis DB - Les emails seront envoyés via SendGrid API');
       } else {
         // Pas d'API Key SendGrid → basculer en mode MOCK automatiquement
         console.warn('⚠️ SendGrid configuré comme provider mais SENDGRID_API_KEY manquante');
         console.warn('📧 Basculement automatique en MODE MOCK - Les emails seront affichés dans la console');
-        console.warn('💡 Pour utiliser SendGrid: Configurez SENDGRID_API_KEY dans votre .env');
+        console.warn('💡 Pour utiliser SendGrid: Configurez SENDGRID_API_KEY dans /api/developer/config');
+        this.useSendGrid = false;
+        this.transporter = null;
       }
-    } else if (emailConfig.provider === 'smtp') {
+    } else if (provider === 'smtp') {
       // Utiliser SMTP uniquement si explicitement demandé
-      console.log('📮 SMTP configuré comme provider (déconseillé sur Render)');
+      console.log('📮 SMTP configuré comme provider');
       this.transporter = createSMTPTransporter();
+      this.useSendGrid = false;
     } else {
-      console.warn(`⚠️ Provider email inconnu: ${emailConfig.provider}`);
+      console.warn(`⚠️ Provider email inconnu: ${provider}`);
       console.warn('📧 Basculement automatique en MODE MOCK');
+      this.useSendGrid = false;
+      this.transporter = null;
     }
+
+    this.initialized = true;
+  }
+
+  /**
+   * Réinitialise le service email (utile après un changement de config)
+   */
+  async reinitialize() {
+    this.initialized = false;
+    this.useSendGrid = false;
+    this.transporter = null;
+    await this.initialize();
   }
 
   /**
    * Envoyer un email
    */
   async sendEmail(to, subject, html) {
+    // Initialiser le service si ce n'est pas déjà fait
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
     try {
       // Mode MOCK : afficher dans la console (explicite ou auto si pas de provider)
       if (emailConfig.mockMode || (!this.useSendGrid && !this.transporter)) {
@@ -581,6 +620,19 @@ class EmailService {
 }
 
 export const emailService = new EmailService();
+
+/**
+ * Vide le cache de configuration et réinitialise les services
+ * Appelé après une modification de configuration
+ */
+export async function clearConfigCache() {
+  console.log('🔄 Réinitialisation de la configuration et des services...');
+
+  // Réinitialiser le service email pour qu'il recharge la config
+  await emailService.reinitialize();
+
+  console.log('✅ Configuration rechargée');
+}
 
 /**
  * Wrapper function to send emails using emailService
