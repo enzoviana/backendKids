@@ -25,7 +25,7 @@ export const emailConfig = {
 
   // Email expéditeur par défaut
   from: {
-    email: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@kidsmed.fr',
+    email: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'kidsmed-ia@datafuse.fr',
     name: process.env.SMTP_FROM_NAME || "Kids'Med IA",
   },
 
