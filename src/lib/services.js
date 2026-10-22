@@ -670,13 +670,61 @@ export function signFile(filename, expiresInSec = 31536000) {
 }
 
 /**
- * Configuration getter (mock implementation)
+ * Clés de configuration disponibles
+ */
+export const CONFIG_KEYS = [
+  'EMAIL_PROVIDER',
+  'SENDGRID_API_KEY',
+  'RESEND_API_KEY',
+  'EMAIL_FROM',
+  'SMTP_HOST',
+  'SMTP_PORT',
+  'SMTP_USER',
+  'SMTP_PASSWORD',
+  'TWILIO_ACCOUNT_SID',
+  'TWILIO_AUTH_TOKEN',
+  'TWILIO_FROM',
+  'GEOCODING_API_KEY',
+  'MSG_MFA',
+  'MSG_ALERTE_ACCES',
+];
+
+/**
+ * Clés qui doivent être masquées dans les réponses API
+ */
+export const SECRET_KEYS = [
+  'SENDGRID_API_KEY',
+  'RESEND_API_KEY',
+  'SMTP_PASSWORD',
+  'TWILIO_AUTH_TOKEN',
+  'GEOCODING_API_KEY',
+];
+
+/**
+ * Configuration getter
  * @param {string} key - Configuration key
  * @param {string} defaultValue - Default value if key not found
  */
 export async function cfg(key, defaultValue) {
-  // Mock implementation - in production, this might fetch from database
-  return defaultValue;
+  // Import prisma dynamically to avoid circular dependency
+  const { prisma } = await import('./core.js');
+
+  try {
+    // Try to get from database first
+    const entry = await prisma.configEntry.findUnique({
+      where: { key }
+    });
+
+    if (entry && entry.value) {
+      return entry.value;
+    }
+  } catch (error) {
+    // If database query fails, fall back to environment variables
+    console.warn(`Could not fetch config from database for key ${key}:`, error.message);
+  }
+
+  // Fall back to environment variable or default value
+  return process.env[key] || defaultValue || '';
 }
 
 /**
