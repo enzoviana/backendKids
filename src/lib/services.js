@@ -258,7 +258,10 @@ async sendEmail(to, subject, html) {
    * @param {{ prenom: string, code?: string, token: string, expiration: string }} data
    */
   async sendPasswordReset(to, data) {
-    const lien_action = `${emailConfig.urls.resetPassword}?token=${data.token}`;
+    // Le lien est construit par la route (avec le token) ; on ne le reconstruit
+    // qu'en secours pour ne jamais envoyer un lien sans token.
+    const token = data.token ? encodeURIComponent(String(data.token)) : "";
+    const lien_action = data.lien_action || `${emailConfig.urls.resetPassword}?token=${token}`;
 
     const html = renderTemplate(EmailTemplate.AUTH_FORGOT_PASSWORD, {
       prenom: data.prenom,

@@ -39,7 +39,8 @@ router.post("/affectations", auth(), roles(), ah(async (req, res) => {
   required({ ...b, etablissementId }, ["rsaiId", "etablissementId", "dateDebut"]);
   const rsai = await prisma.user.findFirst({ where: { id: b.rsaiId, role: "rsai" } });
   if (!rsai) fail(404, "RSAI introuvable");
-  const jours = Array.isArray(b.jours) ? b.jours.map(Number) : [1, 2, 3, 4, 5];
+  const jours = Array.isArray(b.jours) ? [...new Set(b.jours.map(Number))].sort((a, b) => a - b) : [1, 2, 3, 4, 5];
+  if (!jours.length || !jours.every((j) => Number.isInteger(j) && j >= 1 && j <= 7)) fail(400, "Jours invalides : 1 = lundi … 7 = dimanche");
   const a = await prisma.affectation.create({ data: { rsaiId: b.rsaiId, etablissementId, jours, debut: b.debut ?? "08:00", fin: b.fin ?? "18:00", dateDebut: new Date(b.dateDebut), dateFin: toDate(b.dateFin) }, include: inc });
   if (b.demandeId) await prisma.demandeRsai.update({ where: { id: b.demandeId }, data: { statut: "acceptee", affectationId: a.id } }).catch(() => {});
   const staff = await prisma.user.findMany({ where: { etablissementId, role: "creche" }, select: { id: true } });

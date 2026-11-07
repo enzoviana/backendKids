@@ -223,9 +223,10 @@ router.post("/forgot-password", ah(async (req, res) => {
     const token = crypto.randomBytes(32).toString("hex");
     const code = String(crypto.randomInt(100000, 999999));
     await prisma.user.update({ where: { id: user.id }, data: { resetToken: hash(token) + ":" + hash(code), resetExpiresAt: new Date(Date.now() + 15 * 60e3) } });
-    const lien = `${process.env.FRONTEND_URL ?? ""}/reinitialiser?token=${token}`;
+    const base = (process.env.FRONTEND_URL || "https://kidsmedia.vercel.app").replace(/\/$/, "");
+    const lien = `${base}/reinitialiser?token=${encodeURIComponent(token)}`;
     await sendEmail(user.email, "Réinitialisation de votre mot de passe", "auth-forgot-password",
-      { prenom: user.prenom, lien_action: lien, code, expiration: "15 minutes" }, `Lien : ${lien} — code : ${code}`);
+      { prenom: user.prenom, token, lien_action: lien, code, expiration: "15 minutes" }, `Lien : ${lien} — code : ${code}`);
   }
   res.json({ success: true, message: "Si un compte existe, un lien de réinitialisation a été envoyé." });
 }));
