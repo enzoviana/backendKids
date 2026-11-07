@@ -1,9 +1,20 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, fullName } from '../lib/core.js';
 import { assertEtab, etabScope } from '../lib/access.js';
 import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
+import { signFile } from '../lib/services.js';
 
 const router = express.Router();
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+const upload = multer({
+  storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (_r, f, cb) => cb(null, crypto.randomUUID() + path.extname(f.originalname)) }),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_r, f, cb) => cb(null, /image\/(jpeg|png|webp)/.test(f.mimetype)),
+});
 
 async function geocode(adresse) {
   if (!adresse) return {};
@@ -15,7 +26,8 @@ async function geocode(adresse) {
   } catch { return {}; }
 }
 const pick = (b) => ({
-  nom: b.nom, adresse: b.adresse, codePostal: b.codePostal, ville: b.ville, telephone: b.telephone, email: b.email,
+  nom: b.nom, description: b.description, horairesOuverture: b.horairesOuverture,
+  adresse: b.adresse, codePostal: b.codePostal, ville: b.ville, telephone: b.telephone, email: b.email,
   capacite: b.capacite != null ? Number(b.capacite) : undefined,
   latitude: b.latitude != null && b.latitude !== "" ? Number(b.latitude) : undefined,
   longitude: b.longitude != null && b.longitude !== "" ? Number(b.longitude) : undefined,
@@ -47,6 +59,18 @@ router.put("/:etablissementId", auth(), roles("creche"), ah(async (req, res) => 
   const d = pick(req.body);
   if (d.adresse && d.latitude == null) Object.assign(d, await geocode(d.adresse));
   ok(res, await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: d }));
+}));
+router.post("/:etablissementId/photo", auth(), roles("creche"), upload.single("photo"), ah(async (req, res) => {
+  await assertEtab(req.user, req.params.etablissementId);
+  if (!req.file) fail(400, "Champs manquants : photo (JPG, PNG ou WebP ≤ 2 Mo)");
+  const photoUrl = signFile(req.file.filename, 3600 * 24 * 365);
+  await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: { photoUrl } });
+  ok(res, { photoUrl });
+}));
+router.delete("/:etablissementId/photo", auth(), roles("creche"), ah(async (req, res) => {
+  await assertEtab(req.user, req.params.etablissementId);
+  await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: { photoUrl: null } });
+  ok(res, { photoUrl: null });
 }));
 router.delete("/:etablissementId", auth(), roles(), ah(async (req, res) => {
   await prisma.etablissement.delete({ where: { id: req.params.etablissementId } });

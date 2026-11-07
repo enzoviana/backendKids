@@ -108,6 +108,10 @@ router.post("/users/me/avatar", auth(), upload.single("photo"), ah(async (req, r
   await prisma.user.update({ where: { id: req.user.id }, data: { avatarUrl } });
   ok(res, { avatarUrl });
 }));
+router.delete("/users/me/avatar", auth(), ah(async (req, res) => {
+  await prisma.user.update({ where: { id: req.user.id }, data: { avatarUrl: null } });
+  ok(res, { avatarUrl: null });
+}));
 
 router.put("/users/:userId/profile", auth(), roles(), ah(async (req, res) => {
   await guardTarget(req);

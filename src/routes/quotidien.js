@@ -199,7 +199,24 @@ async function createDoc(req, extra = {}) {
   const enfantId = req.body.enfant || req.body.enfantId;
   let etablissementId = req.body.etablissementId || req.user.etablissementId || null;
   if (enfantId) etablissementId = (await assertEnfant(req.user, enfantId)).etablissementId;
-  return prisma.document.create({ data: { nom: req.body.nom || req.file.originalname, type: req.body.type || "Autre", url: req.file.filename, mimeType: req.file.mimetype, taille: req.file.size, enfantId: enfantId || null, etablissementId, auteurId: req.user.id, dateValidite: toDate(req.body.dateValidite), ...extra } });
+  // Un document déposé par la crèche (ou l'administration) est validé immédiatement.
+  // Les dépôts parent/médecin/RSAI restent en attente de contrôle.
+  const statut = ["creche", "admin", "superadmin", "developpeur"].includes(req.user.role) ? "valide" : "en_attente";
+  return prisma.document.create({
+    data: {
+      nom: req.body.nom || req.file.originalname,
+      type: req.body.type || "Autre",
+      url: req.file.filename,
+      mimeType: req.file.mimetype,
+      taille: req.file.size,
+      enfantId: enfantId || null,
+      etablissementId,
+      auteurId: req.user.id,
+      dateValidite: toDate(req.body.dateValidite),
+      statut,
+      ...extra,
+    },
+  });
 }
 
 router.post("/documents/upload-direct", auth(), roles("creche", "rsai", "parent", "medecin"), upload.single("fichier"), ah(async (req, res) => {
