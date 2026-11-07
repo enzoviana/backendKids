@@ -142,6 +142,7 @@ model Enfant {
   notes         Note[]
   echanges      EchangeDocument[]
   presences     Presence[]
+  messages      Message[]
 }
 
 model Liaison {
@@ -373,6 +374,7 @@ model Message {
   destinataireId String
   destinataire   User     @relation("Destinataire", fields: [destinataireId], references: [id], onDelete: Cascade)
   enfantId       String?
+  enfant         Enfant?  @relation(fields: [enfantId], references: [id], onDelete: SetNull)
   sujet          String
   contenu        String
   lu             Boolean  @default(false)

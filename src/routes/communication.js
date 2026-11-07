@@ -11,17 +11,21 @@ const router = express.Router();
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
 const userSel = { select: { id: true, prenom: true, nom: true, email: true, role: true } };
+const enfantSel = { select: { id: true, prenom: true, nom: true } };
 
 // ---------- Messages ----------
-router.get("/messages/recus", auth(), ah(async (req, res) => ok(res, await prisma.message.findMany({ where: { destinataireId: req.user.id }, include: { expediteur: userSel }, orderBy: { createdAt: "desc" } }))));
-router.get("/messages/envoyes", auth(), ah(async (req, res) => ok(res, await prisma.message.findMany({ where: { expediteurId: req.user.id }, include: { destinataire: userSel }, orderBy: { createdAt: "desc" } }))));
+router.get("/messages/recus", auth(), ah(async (req, res) => ok(res, await prisma.message.findMany({ where: { destinataireId: req.user.id }, include: { expediteur: userSel, enfant: enfantSel }, orderBy: { createdAt: "desc" } }))));
+router.get("/messages/envoyes", auth(), ah(async (req, res) => ok(res, await prisma.message.findMany({ where: { expediteurId: req.user.id }, include: { destinataire: userSel, enfant: enfantSel }, orderBy: { createdAt: "desc" } }))));
 router.get("/messages/destinataires", auth(), ah(async (req, res) => ok(res, await prisma.user.findMany({ where: { actif: true, id: { not: req.user.id } }, select: { id: true, prenom: true, nom: true, role: true } }))));
 router.post("/messages", auth(), ah(async (req, res) => {
   required(req.body, ["destinataireId", "contenu"]);
   const dest = await prisma.user.findUnique({ where: { id: req.body.destinataireId } });
   if (!dest) fail(404, "Destinataire introuvable");
   if (req.body.enfantId) await assertEnfant(req.user, req.body.enfantId);
-  const m = await prisma.message.create({ data: { expediteurId: req.user.id, destinataireId: dest.id, sujet: req.body.sujet ?? "(sans objet)", contenu: req.body.contenu, enfantId: req.body.enfantId || null } });
+  const m = await prisma.message.create({
+    data: { expediteurId: req.user.id, destinataireId: dest.id, sujet: req.body.sujet ?? "(sans objet)", contenu: req.body.contenu, enfantId: req.body.enfantId || null },
+    include: { destinataire: userSel, enfant: enfantSel },
+  });
   await notify([dest.id], "Nouveau message", `${fullName(req.user)} : ${m.sujet}`, "/messagerie");
   ok(res, m, 201);
 }));
