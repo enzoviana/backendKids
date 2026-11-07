@@ -4,6 +4,7 @@ import sgMail from '@sendgrid/mail';
 import twilio from 'twilio';
 import os from 'os';
 import crypto from 'crypto';
+import fs from 'fs';
 
 
 
@@ -18,6 +19,7 @@ class EmailService {
 
   constructor() {
     // L'initialisation sera faite de manière lazy au premier envoi
+    this.outbox = [];
     console.log('📧 EmailService créé - Configuration sera chargée au premier envoi');
   }
 
@@ -80,6 +82,13 @@ class EmailService {
   }
 
   /**
+   * Indique si les e-mails sont simulés (aucun fournisseur réel configuré).
+   */
+  isMock() {
+    return emailConfig.mockMode || (!this.useSendGrid && !this.transporter);
+  }
+
+  /**
    * Envoyer un email
    */
 async sendEmail(to, subject, html) {
@@ -95,6 +104,19 @@ async sendEmail(to, subject, html) {
     console.log('[DEBUG] Initialisation du service email...');
     await this.initialize();
     console.log('[DEBUG] initialized après init:', this.initialized);
+  }
+
+  // Boîte d'envoi de test : permet au Pôle Test de vérifier le contenu réel
+  // (mot de passe temporaire, destinataire) sans envoyer d'e-mail.
+  if (process.env.QA_EMAIL_OUTBOX) {
+    const entry = { to, subject, html, at: new Date().toISOString() };
+    this.outbox.push(entry);
+    if (this.outbox.length > 100) this.outbox.shift();
+    try {
+      fs.appendFileSync(process.env.QA_EMAIL_OUTBOX, `${JSON.stringify(entry)}\n`);
+    } catch (err) {
+      console.error('[QA] Impossible d\'écrire la boîte d\'envoi email :', err.message);
+    }
   }
 
   try {
@@ -819,6 +841,7 @@ export async function sendEmail(to, subject, templateOrHtml, data) {
     const templateMethods = {
       'auth-forgot-password': 'sendPasswordReset',
       'auth-welcome': 'sendWelcome',
+      'auth-account-created': 'sendAccountCreated',
       'auth-mfa-code': 'sendMFACode',
       'rsai-affectation': 'sendRsaiAffectation',
       'rsai-demande': 'sendRsaiDemande',

@@ -69,9 +69,10 @@ model Etablissement {
   capacite        Int      @default(0)
   telephone       String?
   email           String?
-  rayonMetres     Int      @default(200)
-  blocageHorsZone Boolean  @default(false)
+  rayonMetres     Int      @default(50)
+  blocageHorsZone Boolean  @default(true)
   plagesHoraires  Json     @default("[]")
+  securitePersonnalisee Boolean @default(false)
   ipsAutorisees   Json     @default("[]")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -121,6 +122,8 @@ model Enfant {
   section         Section? @relation(fields: [sectionId], references: [id])
   codeLiaison     String   @unique
   groupeSanguin   String?
+  poids           Float?
+  taille          Float?
   allergies       String[] @default([])
   antecedents     String[] @default([])
   pai             Boolean  @default(false)
@@ -451,6 +454,9 @@ model ReglesAcces {
   id        String   @id @default("global")
   plages    Json     @default("[]")
   geofences Json     @default("[]")
+  rayonDefaut Int    @default(50)
+  blocageDefaut Boolean @default(true)
+  plagesDefaut Json  @default("[]")
   updatedAt DateTime @updatedAt
 }
 

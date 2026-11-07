@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, publicUser, isAdmin, fullName } from '../lib/core.js';
-import {  signFile } from '../lib/services.js';
+import { signFile, sendEmail, emailService } from '../lib/services.js';
 
 const router = express.Router();
 
@@ -25,8 +25,15 @@ router.get("/users", auth(), roles(), ah(async (req, res) => {
 
 router.post("/users", auth(), roles(), ah(async (req, res) => {
   required(req.body, ["email", "role"]);
-  { const { DEV, isDev } = await import('../lib/core.js'); if (DEV.includes(req.body.role) && !isDev(req.user)) fail(403, "Seul un développeur peut créer un compte développeur"); }
+  { const { DEV, isDev } = await import('../lib/core.js'); if ((DEV.includes(req.body.role) || req.body.role === "superadmin") && !isDev(req.user)) fail(403, "Seul un développeur peut créer un compte développeur ou superadmin"); }
+  const ROLE_SET = ["parent", "medecin", "creche", "rsai", "admin", "superadmin", "developpeur"];
+  if (!ROLE_SET.includes(req.body.role)) fail(400, "Rôle invalide");
   const { password, motDePasse, ...d } = req.body;
+  if (d.role === "creche" && !d.etablissementId) fail(400, "Un compte crèche doit être rattaché à un établissement");
+  if (d.etablissementId) {
+    const etablissement = await prisma.etablissement.findUnique({ where: { id: d.etablissementId }, select: { id: true } });
+    if (!etablissement) fail(404, "Établissement introuvable");
+  }
   const pwd = password || motDePasse || crypto.randomBytes(6).toString("base64url");
   const u = await prisma.user.create({
     data: {
@@ -35,7 +42,34 @@ router.post("/users", auth(), roles(), ah(async (req, res) => {
       motDePasseHash: await bcrypt.hash(pwd, 10),
     },
   });
-  ok(res, { ...publicUser(u), motDePasseTemporaire: password || motDePasse ? undefined : pwd }, 201);
+
+  // Envoi des identifiants au nouvel utilisateur. L'échec d'envoi ne doit pas
+  // annuler la création, mais il est remonté à l'administrateur.
+  let emailEnvoye = false;
+  let emailErreur = null;
+  let emailSimule = false;
+  try {
+    await sendEmail(u.email, "Votre compte Kids'Med IA a été créé", "auth-account-created", {
+      prenom: u.prenom,
+      nom: u.nom,
+      email: u.email,
+      role: u.role,
+      temporaryPassword: pwd,
+    });
+    emailEnvoye = true;
+    emailSimule = emailService.isMock();
+  } catch (err) {
+    emailErreur = err?.message ?? "Envoi de l'e-mail impossible";
+    console.error("Erreur lors de l'envoi des identifiants :", emailErreur);
+  }
+
+  ok(res, {
+    ...publicUser(u),
+    motDePasseTemporaire: password || motDePasse ? undefined : pwd,
+    emailEnvoye,
+    emailSimule,
+    ...(emailErreur ? { emailErreur } : {}),
+  }, 201);
 }));
 
 router.put("/auth/me", auth(), ah(async (req, res) => {

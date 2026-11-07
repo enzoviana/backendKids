@@ -1,6 +1,7 @@
 import express from 'express';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, fullName } from '../lib/core.js';
 import { assertEtab, etabScope } from '../lib/access.js';
+import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
 
 const router = express.Router();
 
@@ -90,15 +91,37 @@ router.get("/:etablissementId/securite", auth(), ah(async (req, res) => {
   await assertEtab(req.user, req.params.etablissementId);
   const e = await prisma.etablissement.findUnique({ where: { id: req.params.etablissementId } });
   if (!e) fail(404, "Établissement introuvable");
-  ok(res, { etablissementId: e.id, adresse: e.adresse, latitude: e.latitude, longitude: e.longitude, rayonMetres: e.rayonMetres, blocageHorsZone: e.blocageHorsZone, plagesHoraires: e.plagesHoraires, ipsAutorisees: e.ipsAutorisees });
+  const defauts = await getGlobalSecurity(prisma);
+  ok(res, { ...e, etablissementId: e.id, defauts, effectif: effectiveSecurity(e, defauts) });
 }));
 router.put("/:etablissementId/securite", auth(), roles("creche"), ah(async (req, res) => {
   await assertEtab(req.user, req.params.etablissementId);
   const b = req.body;
-  const d = { rayonMetres: b.rayonMetres != null ? Number(b.rayonMetres) : undefined, blocageHorsZone: b.blocageHorsZone, plagesHoraires: b.plagesHoraires, ipsAutorisees: b.ipsAutorisees, adresse: b.adresse,
-    latitude: b.latitude != null ? Number(b.latitude) : undefined, longitude: b.longitude != null ? Number(b.longitude) : undefined };
+  const defautsActuels = await getGlobalSecurity(prisma);
+
+  if (b.utiliserDefauts === true || b.securitePersonnalisee === false) {
+    const e = await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: { securitePersonnalisee: false } });
+    return ok(res, { ...e, etablissementId: e.id, defauts: defautsActuels, effectif: effectiveSecurity(e, defautsActuels) });
+  }
+
+  const rayon = b.rayonMetres != null ? Number(b.rayonMetres) : undefined;
+  if (rayon != null && (!Number.isFinite(rayon) || rayon < 10 || rayon > 5000)) fail(400, "Le rayon doit être compris entre 10 et 5000 mètres");
+  const plages = b.plagesHoraires !== undefined ? normalizePlages(b.plagesHoraires) : undefined;
+
+  const d = {
+    securitePersonnalisee: true,
+    rayonMetres: rayon,
+    blocageHorsZone: b.blocageHorsZone,
+    plagesHoraires: plages,
+    ipsAutorisees: b.ipsAutorisees,
+    adresse: b.adresse,
+    latitude: b.latitude != null ? Number(b.latitude) : undefined,
+    longitude: b.longitude != null ? Number(b.longitude) : undefined,
+  };
   if (d.adresse && d.latitude == null) Object.assign(d, await geocode(d.adresse));
-  ok(res, await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: d }));
+  const e = await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: d });
+  const defauts = await getGlobalSecurity(prisma);
+  ok(res, { ...e, etablissementId: e.id, defauts, effectif: effectiveSecurity(e, defauts) });
 }));
 
 // Avis d'une RSAI sur un établissement

@@ -5,6 +5,8 @@ import path from 'path';
 import fs from 'fs';
 import { prisma, ok, fail, ah, required, auth, roles, isDev, isAdmin, notify, adminIds, logSecu, fullName } from '../lib/core.js';
 import { verifierAcces, canAccessEnfant } from '../lib/access.js';
+import { rememberGeo } from '../lib/geo-session.js';
+import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
 import { snapshot, metrics,  verifyFile } from '../lib/services.js';
 
 const router = express.Router();
@@ -58,15 +60,57 @@ router.get("/fichiers/:name", (req, res) => {
 
 // ---------- Règles d'accès ----------
 router.get("/securite/regles-acces", auth(), roles(), ah(async (_req, res) => {
-  const r = await prisma.reglesAcces.findUnique({ where: { id: "global" } });
-  ok(res, { plages: r?.plages ?? [], geofences: r?.geofences ?? [] });
+  const [r, etabs] = await Promise.all([
+    prisma.reglesAcces.findUnique({ where: { id: "global" } }),
+    prisma.etablissement.findMany({ orderBy: { nom: "asc" } }),
+  ]);
+  const defauts = await getGlobalSecurity(prisma);
+  ok(res, {
+    defauts,
+    etablissements: etabs.map((e) => ({
+      id: e.id,
+      nom: e.nom,
+      ville: e.ville,
+      adresse: e.adresse,
+      latitude: e.latitude,
+      longitude: e.longitude,
+      rayonMetres: e.rayonMetres,
+      blocageHorsZone: e.blocageHorsZone,
+      plagesHoraires: e.plagesHoraires,
+      securitePersonnalisee: e.securitePersonnalisee,
+      effectif: effectiveSecurity(e, defauts),
+    })),
+    // Champs historiques conservés pour compatibilité.
+    plages: r?.plages ?? [],
+    geofences: r?.geofences ?? [],
+  });
 }));
 router.put("/securite/regles-acces", auth(), roles(), ah(async (req, res) => {
-  ok(res, await prisma.reglesAcces.upsert({ where: { id: "global" }, update: { plages: req.body.plages ?? [], geofences: req.body.geofences ?? [] }, create: { id: "global", plages: req.body.plages ?? [], geofences: req.body.geofences ?? [] } }));
+  const b = req.body ?? {};
+  const data = {};
+  if (b.defauts && typeof b.defauts === "object") {
+    const d = b.defauts;
+    if (d.rayonMetres != null) {
+      const rayon = Number(d.rayonMetres);
+      data.rayonDefaut = Number.isFinite(rayon) ? Math.max(10, Math.min(5000, Math.round(rayon))) : DEFAULT_SECURITE.rayonMetres;
+    }
+    if (d.blocageHorsZone != null) data.blocageDefaut = !!d.blocageHorsZone;
+    if (Array.isArray(d.plagesHoraires)) data.plagesDefaut = normalizePlages(d.plagesHoraires);
+  }
+  if (b.plages !== undefined) data.plages = b.plages;
+  if (b.geofences !== undefined) data.geofences = b.geofences;
+  const r = await prisma.reglesAcces.upsert({
+    where: { id: "global" },
+    update: data,
+    create: { id: "global", ...data },
+  });
+  const defauts = await getGlobalSecurity(prisma);
+  ok(res, { defauts, plages: r.plages, geofences: r.geofences });
 }));
 router.post("/securite/verifier-acces", auth(), ah(async (req, res) => {
   required(req.body, ["enfantId"]);
   const r = await verifierAcces(req.user, req.body.enfantId, req.body.lat, req.body.lng);
+  if (r.autorise) rememberGeo(req.user.id, req.body.lat, req.body.lng);
   await logSecu(req, r.autorise ? "consultation_dossier" : "acces_refuse", { enfantId: req.body.enfantId, autorise: r.autorise, motif: r.motif, device: req.body.device ?? req.headers["user-agent"] });
   if (!r.autorise) await notify(await adminIds(), "Accès refusé", `${fullName(req.user)} — ${r.motif}`, "/admin/securite", "alerte");
   ok(res, r);

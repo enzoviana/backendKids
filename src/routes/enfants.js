@@ -9,9 +9,33 @@ const fields = (b) => ({
   prenom: b.prenom, nom: b.nom, dateNaissance: toDate(b.dateNaissance), sexe: b.sexe,
   etablissementId: b.etablissementId || undefined, sectionId: b.sectionId || undefined,
   groupeSanguin: b.groupeSanguin, pai: b.pai != null ? !!b.pai : undefined,
+  poids: b.poids !== undefined && b.poids !== null && b.poids !== "" ? Number(b.poids) : undefined,
+  taille: b.taille !== undefined && b.taille !== null && b.taille !== "" ? Number(b.taille) : undefined,
   allergies: Array.isArray(b.allergies) ? b.allergies : typeof b.allergies === "string" ? b.allergies.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
   antecedents: Array.isArray(b.antecedents) ? b.antecedents : undefined,
 });
+
+const IDENTITY_FIELDS = ["prenom", "nom", "dateNaissance", "sexe", "poids", "taille"];
+const MEDICAL_FIELDS = ["groupeSanguin", "pai", "allergies", "antecedents"];
+
+/**
+ * Champs qu'un rôle peut modifier via PUT /enfants/:id.
+ * - parent / médecin : identité, mesures et données médicales, jamais l'établissement ni la section.
+ * - crèche : identité, mesures et section de SON établissement ; jamais les données médicales.
+ * - admin / développeur : tous les champs (supervision), section validée plus bas.
+ */
+function updateFieldsFor(user, body) {
+  const d = fields(body);
+  if (isAdmin(user)) return d;
+  if (user.role === "creche") {
+    const allowed = {};
+    for (const key of [...IDENTITY_FIELDS, "sectionId"]) if (d[key] !== undefined) allowed[key] = d[key];
+    return allowed;
+  }
+  const allowed = {};
+  for (const key of [...IDENTITY_FIELDS, ...MEDICAL_FIELDS]) if (d[key] !== undefined) allowed[key] = d[key];
+  return allowed;
+}
 
 // ---------- /enfants ----------
 router.get("/enfants", auth(), ah(async (req, res) => {
@@ -43,16 +67,22 @@ router.get("/enfants/:enfantId", auth(), ah(async (req, res) => {
   ok(res, await prisma.enfant.findUnique({ where: { id: req.params.enfantId }, include: { etablissement: true, section: true } }));
 }));
 router.put("/enfants/:enfantId", auth(), roles("creche", "parent", "medecin"), ah(async (req, res) => {
-  await assertEnfant(req.user, req.params.enfantId);
+  const enfant = await assertEnfant(req.user, req.params.enfantId);
+  const data = updateFieldsFor(req.user, req.body);
+  if (data.sectionId) {
+    const section = await prisma.section.findUnique({ where: { id: data.sectionId }, select: { etablissementId: true } });
+    const etablissementAttendu = enfant.etablissementId ?? req.user.etablissementId;
+    if (!section || section.etablissementId !== etablissementAttendu) fail(400, "Section invalide pour cet enfant");
+  }
   await logSecu(req, "modification_dossier", { enfantId: req.params.enfantId });
-  ok(res, await prisma.enfant.update({ where: { id: req.params.enfantId }, data: fields(req.body) }));
+  ok(res, await prisma.enfant.update({ where: { id: req.params.enfantId }, data }));
 }));
 router.delete("/enfants/:enfantId", auth(), roles("creche"), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
   await prisma.enfant.delete({ where: { id: req.params.enfantId } });
   ok(res, { supprime: true });
 }));
-router.patch("/enfants/:enfantId/dossier-medical", auth(), roles("parent", "medecin", "creche"), ah(async (req, res) => {
+router.patch("/enfants/:enfantId/dossier-medical", auth(), roles("parent", "medecin"), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
   const { groupeSanguin, allergies, antecedents, pai } = fields(req.body);
   await logSecu(req, "modification_dossier", { enfantId: req.params.enfantId });

@@ -31,6 +31,20 @@ router.post("/login", ah(async (req, res) => {
     fail(401, "Email ou mot de passe incorrect");
   }
   if (!user.actif) fail(403, "Compte désactivé");
+  // Horaires d'ouverture de la crèche : accès plateforme limité aux plages effectives.
+  if (user.role === "creche" && user.etablissementId) {
+    const { getGlobalSecurity, effectiveSecurity } = await import('../lib/security-defaults.js');
+    const { dansPlageParis } = await import('../lib/paris-time.js');
+    const etablissement = await prisma.etablissement.findUnique({ where: { id: user.etablissementId } });
+    if (etablissement) {
+      const defauts = await getGlobalSecurity(prisma);
+      const securite = effectiveSecurity(etablissement, defauts);
+      if (securite.blocageHorsZone && !dansPlageParis(securite.plagesHoraires)) {
+        await logSecu({ ip: req.ip, headers: req.headers, user }, "tentative_connexion", { autorise: false, motif: "hors_plage" });
+        fail(403, "Accès à la plateforme en dehors des horaires d'ouverture de la crèche", { motif: "hors_plage", securite: true });
+      }
+    }
+  }
   // Réseau autorisé : si la crèche a une liste d'IP, les comptes crèche/RSAI doivent s'y connecter
   if (["creche", "rsai"].includes(user.role)) {
     const etabIds = user.role === "creche" ? [user.etablissementId].filter(Boolean)

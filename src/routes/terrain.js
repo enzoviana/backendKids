@@ -2,6 +2,8 @@
 import express from 'express';
 import { prisma, ok, fail, ah, required, auth, roles, toDate, notify, fullName } from '../lib/core.js';
 import { assertEnfant, assertEtab, rsaiEtabIds, distanceM } from '../lib/access.js';
+import { rememberGeo } from '../lib/geo-session.js';
+import { effectiveSecurity, getGlobalSecurity } from '../lib/security-defaults.js';
 
 const router = express.Router();
 
@@ -118,15 +120,20 @@ router.post("/securite/verifier-position", auth(), roles("rsai", "creche"), ah(a
   const lat = Number(req.body.latitude ?? req.body.lat), lng = Number(req.body.longitude ?? req.body.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) fail(400, "Position invalide");
   const ids = req.user.role === "rsai" ? await rsaiEtabIds(req.user.id) : [req.user.etablissementId].filter(Boolean);
-  const etabs = await prisma.etablissement.findMany({ where: { id: { in: ids } } });
+  const [etabs, defauts] = await Promise.all([
+    prisma.etablissement.findMany({ where: { id: { in: ids } } }),
+    getGlobalSecurity(prisma),
+  ]);
   let best = null;
   for (const e of etabs) {
     if (e.latitude == null || e.longitude == null) continue;
+    const securite = effectiveSecurity(e, defauts);
     const d = Math.round(distanceM(lat, lng, e.latitude, e.longitude));
-    if (!best || d < best.distanceM) best = { etablissementId: e.id, nom: e.nom, distanceM: d, rayon: e.rayonMetres };
+    if (!best || d < best.distanceM) best = { etablissementId: e.id, nom: e.nom, distanceM: d, rayon: securite.rayonMetres };
   }
   const autorise = !!best && best.distanceM <= best.rayon;
   if (!autorise) fail(403, best ? `Hors périmètre (${best.distanceM} m de ${best.nom})` : "Aucune crèche géolocalisée affectée");
+  rememberGeo(req.user.id, lat, lng);
   ok(res, { autorise, ...best });
 }));
 
