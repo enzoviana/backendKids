@@ -161,13 +161,31 @@ router.delete("/medicaments/:id", auth(), roles("creche", "medecin"), ah(async (
 }));
 
 // ---------- Ordonnances ----------
+/** Ajoute l'URL signée du document joint à chaque ordonnance. */
+async function withOrdonnanceDocument(list) {
+  const ids = list.map((o) => o.documentId).filter(Boolean);
+  if (!ids.length) return list;
+  const docs = await prisma.document.findMany({ where: { id: { in: ids } } });
+  return list.map((o) => {
+    const d = docs.find((x) => x.id === o.documentId);
+    return {
+      ...o,
+      nom: o.nom ?? d?.nom ?? d?.type ?? o.contenu ?? null,
+      url: d ? signFile(path.basename(d.url)) : null,
+      document: d ? { id: d.id, nom: d.nom, type: d.type, statut: d.statut } : null,
+    };
+  });
+}
+
 router.get("/ordonnances/medecin/:medecinId", auth(), ah(async (req, res) => {
   if (!isAdmin(req.user) && req.user.id !== req.params.medecinId) fail(403, "Permissions insuffisantes");
-  ok(res, await prisma.ordonnance.findMany({ where: { medecinId: req.params.medecinId }, include: { enfant: enfantSel }, orderBy: { date: "desc" } }));
+  const list = await prisma.ordonnance.findMany({ where: { medecinId: req.params.medecinId }, include: { enfant: enfantSel }, orderBy: { date: "desc" } });
+  ok(res, await withOrdonnanceDocument(list));
 }));
 router.get("/ordonnances/enfant/:enfantId", auth(), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
-  ok(res, await prisma.ordonnance.findMany({ where: { enfantId: req.params.enfantId }, orderBy: { date: "desc" } }));
+  const list = await prisma.ordonnance.findMany({ where: { enfantId: req.params.enfantId }, orderBy: { date: "desc" } });
+  ok(res, await withOrdonnanceDocument(list));
 }));
 router.get("/ordonnances/stats/:etablissementId", auth(), ah(async (req, res) => {
   await assertEtab(req.user, etabParam(req));
@@ -260,6 +278,22 @@ router.patch("/documents/:id/statut", auth(), roles("creche", "rsai"), ah(async 
   if (!d) fail(404, "Document introuvable");
   if (d.etablissementId) await assertEtab(req.user, d.etablissementId);
   ok(res, withUrl(await prisma.document.update({ where: { id: d.id }, data: { statut: req.body.statut } })));
+}));
+router.put("/documents/:id", auth(), roles("creche", "rsai", "medecin", "parent", "admin", "superadmin", "developpeur"), ah(async (req, res) => {
+  const d = await prisma.document.findUnique({ where: { id: req.params.id } });
+  if (!d) fail(404, "Document introuvable");
+  if (d.enfantId) await assertEnfant(req.user, d.enfantId);
+  else if (d.etablissementId) await assertEtab(req.user, d.etablissementId);
+  const pro = ["creche", "rsai", "admin", "superadmin", "developpeur"].includes(req.user.role) || isAdmin(req.user);
+  if (!pro && d.auteurId !== req.user.id) fail(403, "Permissions insuffisantes");
+  const data = {
+    nom: req.body.nom,
+    type: req.body.type,
+    dateValidite: req.body.dateValidite !== undefined ? toDate(req.body.dateValidite) : undefined,
+    // Seuls les professionnels habilités changent le statut de validation.
+    ...(pro && req.body.statut ? { statut: req.body.statut } : {}),
+  };
+  ok(res, withUrl(await prisma.document.update({ where: { id: d.id }, data })));
 }));
 router.delete("/documents/:id", auth(), ah(async (req, res) => {
   const d = await prisma.document.findUnique({ where: { id: req.params.id } });
