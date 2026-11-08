@@ -3,6 +3,7 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { DEFAULT_SECURITE } from "../src/lib/security-defaults.js";
+import { ensureDefaultDocuments } from "../src/lib/documents-obligatoires.js";
 
 const prisma = new PrismaClient();
 
@@ -22,6 +23,7 @@ async function main() {
       capacite: 40,
     },
   });
+  await ensureDefaultDocuments(prisma, etab.id);
   const users = [
     { email: "superadmin@kidsmed.local", role: "superadmin", prenom: "Super", nom: "Admin" },
     { email: "dev@kidsmed.local", role: "developpeur", prenom: "Dev", nom: "KidsMed" },

@@ -18,24 +18,24 @@ const etabParam = (req) => req.params.etablissementId;
 const etabFromBody = (req) => req.body.etablissementId || req.user.etablissementId;
 
 /** Fabrique un CRUD simple rattaché à un établissement. */
-function crudEtab(base, model, requiredFields, mapIn = (b) => b, include) {
+function crudEtab(base, model, requiredFields, mapIn = (b) => b, include, writeRoles = ["creche"]) {
   router.get(`/${base}/etablissement/:etablissementId`, auth(), ah(async (req, res) => {
     await assertEtab(req.user, etabParam(req));
     ok(res, await prisma[model].findMany({ where: { etablissementId: etabParam(req) }, include, orderBy: { createdAt: "desc" } }));
   }));
-  router.post(`/${base}`, auth(), roles("creche"), ah(async (req, res) => {
+  router.post(`/${base}`, auth(), roles(...writeRoles), ah(async (req, res) => {
     const etablissementId = etabFromBody(req);
     required({ ...req.body, etablissementId }, [...requiredFields, "etablissementId"]);
     await assertEtab(req.user, etablissementId);
     ok(res, await prisma[model].create({ data: { ...mapIn(req.body), etablissementId } }), 201);
   }));
-  router.put(`/${base}/:id`, auth(), roles("creche"), ah(async (req, res) => {
+  router.put(`/${base}/:id`, auth(), roles(...writeRoles), ah(async (req, res) => {
     const cur = await prisma[model].findUnique({ where: { id: req.params.id } });
     if (!cur) fail(404, "Élément introuvable");
     await assertEtab(req.user, cur.etablissementId);
     ok(res, await prisma[model].update({ where: { id: req.params.id }, data: mapIn(req.body) }));
   }));
-  router.delete(`/${base}/:id`, auth(), roles("creche"), ah(async (req, res) => {
+  router.delete(`/${base}/:id`, auth(), roles(...writeRoles), ah(async (req, res) => {
     const cur = await prisma[model].findUnique({ where: { id: req.params.id } });
     if (!cur) fail(404, "Élément introuvable");
     await assertEtab(req.user, cur.etablissementId);
@@ -46,7 +46,7 @@ function crudEtab(base, model, requiredFields, mapIn = (b) => b, include) {
 
 crudEtab("sections", "section", ["nom"], (b) => ({ nom: b.nom, ageMin: b.ageMin != null ? Number(b.ageMin) : undefined, ageMax: b.ageMax != null ? Number(b.ageMax) : undefined, capacite: b.capacite != null ? Number(b.capacite) : undefined }), { _count: { select: { enfants: true } } });
 crudEtab("personnels", "personnel", ["prenom", "nom"], (b) => ({ prenom: b.prenom, nom: b.nom, poste: b.poste, email: b.email, telephone: b.telephone }));
-crudEtab("documents-obligatoires", "documentObligatoire", ["type"], (b) => ({ type: b.type, description: b.description, validiteMois: b.validiteMois != null ? Number(b.validiteMois) : undefined }));
+crudEtab("documents-obligatoires", "documentObligatoire", ["type"], (b) => ({ type: b.type, description: b.description, validiteMois: b.validiteMois != null ? Number(b.validiteMois) : undefined }), undefined, ["creche", "admin", "superadmin", "developpeur"]);
 
 router.get("/sections/stats/:etablissementId", auth(), ah(async (req, res) => {
   await assertEtab(req.user, etabParam(req));
@@ -219,7 +219,7 @@ async function createDoc(req, extra = {}) {
   });
 }
 
-router.post("/documents/upload-direct", auth(), roles("creche", "rsai", "parent", "medecin"), upload.single("fichier"), ah(async (req, res) => {
+router.post("/documents/upload-direct", auth(), roles("creche", "rsai", "parent", "medecin", "admin", "superadmin", "developpeur"), upload.single("fichier"), ah(async (req, res) => {
   ok(res, withUrl(await createDoc(req)), 201);
 }));
 router.post("/documents/depot-medical", auth(), roles("medecin", "parent"), upload.single("fichier"), ah(async (req, res) => {
@@ -272,7 +272,7 @@ router.get("/documents/alertes", auth(), ah(async (req, res) => {
   const out = [];
   for (const e of enfants) {
     const requis = obligatoires.filter((o) => o.etablissementId === e.etablissementId).map((o) => o.type);
-    if (e.pai) requis.push("PAI");
+    if (e.pai && !requis.some((t) => /^pai/i.test(t))) requis.push("PAI");
     for (const type of [...new Set(requis)]) {
       const d = docs.filter((x) => x.enfantId === e.id && x.type.toLowerCase() === type.toLowerCase()).sort((a, b) => +b.createdAt - +a.createdAt)[0];
       const enfant = { id: e.id, _id: e.id, prenom: e.prenom, nom: e.nom };

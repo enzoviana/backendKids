@@ -6,6 +6,7 @@ import { prisma, ok, fail, ah, required, auth, roles, isAdmin, fullName } from '
 import { assertEtab, etabScope } from '../lib/access.js';
 import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
 import { signFile } from '../lib/services.js';
+import { ensureDefaultDocuments } from '../lib/documents-obligatoires.js';
 
 const router = express.Router();
 
@@ -45,7 +46,9 @@ router.post("/", auth(), roles(), ah(async (req, res) => {
   required(req.body, ["nom"]);
   const d = pick(req.body);
   if (d.latitude == null) Object.assign(d, { ...(await geocode([d.adresse, d.codePostal, d.ville].filter(Boolean).join(" "))), ...Object.fromEntries(Object.entries(d).filter(([, v]) => v != null)) });
-  ok(res, await prisma.etablissement.create({ data: d }), 201);
+  const created = await prisma.etablissement.create({ data: d });
+  await ensureDefaultDocuments(prisma, created.id);
+  ok(res, created, 201);
 }));
 
 router.get("/:etablissementId", auth(), ah(async (req, res) => {
