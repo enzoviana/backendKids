@@ -53,8 +53,9 @@ router.get("/health", ah(async (_req, res) => {
 router.get("/fichiers/:name", (req, res) => {
   const name = path.basename(req.params.name);
   if (!verifyFile(name, req.query.exp, req.query.sig)) return res.status(403).json({ success: false, error: "Lien expiré ou invalide" });
-  const f = path.join(UPLOAD_DIR, name);
-  if (!fs.existsSync(f)) return res.status(404).json({ success: false, error: "Fichier introuvable" });
+  const f = path.resolve(UPLOAD_DIR, name);
+  if (!fs.existsSync(f) || !fs.statSync(f).isFile()) return res.status(404).json({ success: false, error: "Fichier introuvable" });
+  res.setHeader("Content-Disposition", `inline; filename="${name.replace(/"/g, "")}"`);
   res.sendFile(f);
 });
 

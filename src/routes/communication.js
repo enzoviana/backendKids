@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, notify, fullName } from '../lib/core.js';
 import { assertEnfant, enfantScope, assertEtab } from '../lib/access.js';
+import { signFile } from '../lib/services.js';
 
 const router = express.Router();
 
@@ -80,6 +81,10 @@ function analyse(symptomes, temperature) {
 }
 const upload = multer({ storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (_r, f, cb) => cb(null, crypto.randomUUID() + path.extname(f.originalname)) }), limits: { fileSize: 10 * 1024 * 1024 } });
 
+// La photo d'un diagnostic est stockée comme nom de fichier : on renvoie toujours
+// une URL signée pour qu'elle soit réellement affichable (et jamais publique).
+const withPhotoUrl = (d) => (d && d.photoUrl ? { ...d, photoUrl: signFile(path.basename(d.photoUrl), 3600 * 24 * 365) } : d);
+
 router.post("/diagnostics/analyser", auth(), upload.single("photo"), ah(async (req, res) => {
   required(req.body, ["enfantId"]);
   const e = await assertEnfant(req.user, req.body.enfantId);
@@ -93,14 +98,14 @@ router.post("/diagnostics/analyser", auth(), upload.single("photo"), ah(async (r
     const staff = e.etablissementId ? await prisma.user.findMany({ where: { etablissementId: e.etablissementId, role: "creche" }, select: { id: true } }) : [];
     await notify([...l.map((x) => x.userId), ...staff.map((s) => s.id)], `Alerte santé — ${e.prenom}`, `${r.diagnosticSuggere} (risque ${r.niveauRisque})`, `/enfants/${e.id}`, "alerte");
   }
-  ok(res, { ...d, enfant_id: d.enfantId, date_analyse: d.createdAt, symptoms_detectes: symptomes, diagnostics: r.diagnostics, diagnostic_suggere: r.diagnosticSuggere, niveau_confiance: r.confiance, niveau_risque: r.niveauRisque }, 201);
+  ok(res, { ...withPhotoUrl(d), enfant_id: d.enfantId, date_analyse: d.createdAt, symptoms_detectes: symptomes, diagnostics: r.diagnostics, diagnostic_suggere: r.diagnosticSuggere, niveau_confiance: r.confiance, niveau_risque: r.niveauRisque }, 201);
 }));
 router.get("/diagnostics", auth(), roles("rsai", "medecin", "creche"), ah(async (req, res) => {
   const scope = await enfantScope(req.user);
   const where = scope ? { enfantId: { in: scope } } : {};
   if (req.query.etablissementId) Object.assign(where, { enfant: { etablissementId: String(req.query.etablissementId) } });
   const d = await prisma.diagnostic.findMany({ where, include: { enfant: { select: { id: true, prenom: true, nom: true } } }, orderBy: { createdAt: "desc" }, take: Number(req.query.limit ?? 100) });
-  ok(res, d.map((x) => ({ ...x, resultat: x.diagnosticSuggere })));
+  ok(res, d.map((x) => ({ ...withPhotoUrl(x), resultat: x.diagnosticSuggere })));
 }));
 router.get("/diagnostics/stats", auth(), ah(async (req, res) => {
   const scope = await enfantScope(req.user);
@@ -112,7 +117,7 @@ router.get("/diagnostics/stats", auth(), ah(async (req, res) => {
 }));
 router.get("/diagnostics/enfant/:enfantId", auth(), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
-  ok(res, await prisma.diagnostic.findMany({ where: { enfantId: req.params.enfantId }, orderBy: { createdAt: "desc" } }));
+  ok(res, (await prisma.diagnostic.findMany({ where: { enfantId: req.params.enfantId }, orderBy: { createdAt: "desc" } })).map(withPhotoUrl));
 }));
 router.post("/diagnostics/:diagnosticId/retour-medecin", auth(), roles("medecin"), ah(async (req, res) => {
   const d = await prisma.diagnostic.findUnique({ where: { id: req.params.diagnosticId } });

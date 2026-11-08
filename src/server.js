@@ -4,6 +4,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import fs from 'fs';
 import { prisma, HttpError } from './lib/core.js';
 import { metricsMiddleware } from './lib/services.js';
 import authRoutes from './routes/auth.js';
@@ -48,6 +50,24 @@ app.use("/api", communicationRoutes);
 app.use("/api", abonnementsRoutes);
 app.use("/api", adminRoutes);
 app.use("/api", terrainRoutes);
+
+// Compatibilité des anciennes URL d'images : `/uploads/<fichier>.png` (avatars, photos
+// d'enfants, de crèches, de diagnostics) est encore présent en base. Seules les images
+// sont servies ici : les PDF et documents de santé restent derrière les liens signés
+// `/api/fichiers/<nom>?exp=…&sig=…`.
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads");
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+app.get("/uploads/:name", (req, res) => {
+  const name = path.basename(req.params.name);
+  if (!IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase())) {
+    return res.status(404).json({ success: false, error: "Fichier introuvable" });
+  }
+  const file = path.resolve(UPLOAD_DIR, name);
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    return res.status(404).json({ success: false, error: "Fichier introuvable" });
+  }
+  res.sendFile(file);
+});
 
 app.use("/api", (req, res) => res.status(404).json({ success: false, error: "Route non trouvée", method: req.method, path: req.originalUrl }));
 

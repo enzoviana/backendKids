@@ -1048,13 +1048,20 @@ export function signFile(filename, expiresInSec = 31536000) {
     return filename;
   }
 
-  // Base URL de l'API / serveur Express (ex: https://kidsmed-backend.onrender.com ou http://localhost:5000)
-  const baseUrl = process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || '';
+  // Base URL publique du serveur (Render, local, etc.)
+  const baseUrl = (process.env.PUBLIC_URL || process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
 
-  // Nettoyer le nom de fichier au cas où il contient un chemin relatif
-  const cleanFilename = filename.split('/').pop();
+  // Déjà une URL signée relative : la compléter avec la base si besoin.
+  if (filename.includes('/api/fichiers/')) return filename.startsWith('http') ? filename : `${baseUrl}${filename}`;
 
-  return `${baseUrl}/uploads/${cleanFilename}`;
+  // Nettoyer le nom de fichier au cas où il contient un chemin relatif/query.
+  const cleanFilename = filename.split('/').pop().split('?')[0];
+
+  const exp = Math.floor(Date.now() / 1000) + Math.max(60, Number(expiresInSec) || 31536000);
+  const secret = process.env.FILE_SIGN_SECRET || process.env.JWT_SECRET || 'kidsmed-secret-key-file-signing';
+  const sig = crypto.createHmac('sha256', secret).update(`${cleanFilename}:${exp}`).digest('hex');
+
+  return `${baseUrl}/api/fichiers/${encodeURIComponent(cleanFilename)}?exp=${exp}&sig=${sig}`;
 }
 
 /**
