@@ -161,6 +161,24 @@ model Liaison {
   @@unique([enfantId, userId])
 }
 
+/// Invitation à créer un compte puis à rejoindre le dossier d'un enfant.
+/// Utilisée quand la crèche lie un e-mail qui n'a pas encore de compte.
+model LiaisonInvitation {
+  id          String    @id @default(uuid())
+  enfantId    String
+  email       String
+  role        String
+  token       String    @unique
+  statut      String    @default("en_attente")
+  expiresAt   DateTime
+  createdById String?
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([enfantId, email, role])
+  @@index([email, statut])
+}
+
 model Presence {
   id       String   @id @default(uuid())
   enfantId String

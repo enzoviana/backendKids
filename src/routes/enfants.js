@@ -1,7 +1,9 @@
 import express from 'express';
 import QRCode from 'qrcode';
+import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, genCode, toDate, logSecu, notify, fullName } from '../lib/core.js';
 import { assertEnfant, assertEtab, enfantScope } from '../lib/access.js';
+import { sendEmail } from '../lib/services.js';
 
 const router = express.Router();
 
@@ -173,9 +175,41 @@ router.post("/enfants/:enfantId/echanges-documents", auth(), roles("creche", "me
 }));
 
 // ---------- Liaisons ----------
+const INVITABLE_ROLES = ["parent", "medecin"];
+const frontendBase = () => (process.env.FRONTEND_URL || "https://kidsmedia.vercel.app").replace(/\/+$/, "");
+const inviteLink = (email, token) => `${frontendBase()}/app?page=register&email=${encodeURIComponent(email)}&invitation=${encodeURIComponent(token)}`;
+
+function invitationHtml({ prenom, enfantNom, etablissementNom, role, link }) {
+  const roleLabel = role === "medecin" ? "médecin" : "parent";
+  return `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#1f2937">
+    <h1>Kids'Med IA — invitation</h1>
+    <p>Bonjour${prenom ? ` ${prenom}` : ""},</p>
+    <p>La crèche${etablissementNom ? ` <strong>${etablissementNom}</strong>` : ""} vous invite à rejoindre le dossier de <strong>${enfantNom}</strong> en tant que ${roleLabel}.</p>
+    <p>Créez votre compte avec cette adresse e-mail pour accéder au dossier :</p>
+    <p><a href="${link}" style="display:inline-block;background:#0095ff;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">Créer mon compte</a></p>
+    <p>Ce lien est valable 7 jours. Si vous avez déjà un compte, connectez-vous puis saisissez le code de liaison fourni par la crèche.</p>
+    <p style="font-size:12px;color:#6b7280">Si vous n'êtes pas concerné, ignorez cet e-mail.</p>
+  </body></html>`;
+}
+
 router.get("/liaisons/enfant/:enfantId", auth(), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
-  ok(res, await prisma.liaison.findMany({ where: { enfantId: req.params.enfantId }, include: { user: { select: { id: true, prenom: true, nom: true, email: true, role: true } } } }));
+  const [liens, invitations] = await Promise.all([
+    prisma.liaison.findMany({ where: { enfantId: req.params.enfantId }, include: { user: { select: { id: true, prenom: true, nom: true, email: true, role: true } } } }),
+    prisma.liaisonInvitation.findMany({ where: { enfantId: req.params.enfantId, statut: "en_attente", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } }),
+  ]);
+  ok(res, [
+    ...liens,
+    ...invitations.map((i) => ({
+      _id: `inv_${i.id}`,
+      id: i.id,
+      invitation: true,
+      role: i.role,
+      statut: i.statut,
+      expiresAt: i.expiresAt,
+      user: { email: i.email, prenom: i.email.split("@")[0], nom: "" },
+    })),
+  ]);
 }));
 router.get("/liaisons", auth(), roles(), ah(async (req, res) => {
   const { enfantId, userId, role } = req.query;
@@ -183,11 +217,63 @@ router.get("/liaisons", auth(), roles(), ah(async (req, res) => {
 }));
 router.post("/liaisons", auth(), roles("creche"), ah(async (req, res) => {
   const enfantId = req.body.enfantId ?? req.body.enfant;
-  required({ enfantId, role: req.body.role }, ["enfantId", "role"]);
-  await assertEnfant(req.user, enfantId);
-  const user = req.body.userId ? await prisma.user.findUnique({ where: { id: req.body.userId } }) : await prisma.user.findUnique({ where: { email: req.body.email ?? "" } });
-  if (!user) fail(404, "Utilisateur introuvable (e-mail ou identifiant)");
-  ok(res, await prisma.liaison.upsert({ where: { enfantId_userId: { enfantId, userId: user.id } }, update: { role: req.body.role }, create: { enfantId, userId: user.id, role: req.body.role, source: isAdmin(req.user) ? "admin" : "creche" } }), 201);
+  const role = String(req.body.role ?? "").trim();
+  required({ enfantId, role }, ["enfantId", "role"]);
+  const enfant = await assertEnfant(req.user, enfantId);
+  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const user = req.body.userId
+    ? await prisma.user.findUnique({ where: { id: req.body.userId } })
+    : email
+      ? await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } })
+      : null;
+
+  if (!user) {
+    // Pas de compte : on prépare une invitation nominative. Le parent ou le médecin
+    // pourra s'inscrire avec cette adresse et sera automatiquement lié au dossier.
+    if (!email) fail(404, "Utilisateur introuvable (e-mail ou identifiant)");
+    if (!INVITABLE_ROLES.includes(role)) {
+      fail(400, "Ce rôle doit être créé par l'administrateur. Seuls un parent ou un médecin peuvent être invités par e-mail.");
+    }
+    const token = crypto.randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 7 * 864e5);
+    const invitation = await prisma.liaisonInvitation.upsert({
+      where: { enfantId_email_role: { enfantId, email, role } },
+      update: { token, statut: "en_attente", expiresAt, acceptedAt: null, createdById: req.user.id },
+      create: { enfantId, email, role, token, expiresAt, createdById: req.user.id },
+    });
+    const etablissement = enfant.etablissementId ? await prisma.etablissement.findUnique({ where: { id: enfant.etablissementId }, select: { nom: true } }) : null;
+    const link = inviteLink(email, token);
+    let emailSent = false;
+    try {
+      await sendEmail(
+        email,
+        `Invitation à rejoindre le dossier de ${enfant.prenom}`,
+        invitationHtml({ enfantNom: fullName(enfant), etablissementNom: etablissement?.nom, role, link }),
+      );
+      emailSent = true;
+    } catch (err) {
+      console.error("Invitation liaison : envoi e-mail impossible", err?.message ?? err);
+    }
+    return ok(res, { id: invitation.id, invitation: true, email, role, expiresAt, emailSent, lien: link }, 201);
+  }
+
+  const lien = await prisma.liaison.upsert({
+    where: { enfantId_userId: { enfantId, userId: user.id } },
+    update: { role },
+    create: { enfantId, userId: user.id, role, source: isAdmin(req.user) ? "admin" : "creche" },
+  });
+  await prisma.liaisonInvitation.updateMany({
+    where: { enfantId, email: { equals: user.email, mode: "insensitive" }, role, statut: "en_attente" },
+    data: { statut: "acceptee", acceptedAt: new Date() },
+  });
+  ok(res, lien, 201);
+}));
+router.delete("/liaisons/invitations/:invitationId", auth(), roles("creche"), ah(async (req, res) => {
+  const inv = await prisma.liaisonInvitation.findUnique({ where: { id: req.params.invitationId } });
+  if (!inv) fail(404, "Invitation introuvable");
+  await assertEnfant(req.user, inv.enfantId);
+  await prisma.liaisonInvitation.delete({ where: { id: inv.id } });
+  ok(res, { supprime: true });
 }));
 router.delete("/liaisons/:liaisonId", auth(), roles("creche"), ah(async (req, res) => {
   const l = await prisma.liaison.findUnique({ where: { id: req.params.liaisonId } });

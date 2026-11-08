@@ -10,16 +10,62 @@ const router = express.Router();
 
 const hash = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
-// Inscription (parent par défaut ; les autres rôles sont créés par l'admin)
+// Inscription (parent par défaut ; un professionnel invité par une crèche peut
+// créer son compte via le jeton d'invitation ; les autres rôles sont créés par l'admin)
 router.post("/register", ah(async (req, res) => {
   required(req.body, ["email", "password"]);
-  const { email, password, prenom, nom, telephone } = req.body;
+  const { password, prenom, nom, telephone } = req.body;
+  const email = String(req.body.email ?? "").trim();
+  const invitationToken = String(req.body.invitationToken ?? "").trim();
+
+  let invitation = null;
+  if (invitationToken) {
+    invitation = await prisma.liaisonInvitation.findUnique({ where: { token: invitationToken } });
+    if (!invitation || invitation.statut !== "en_attente") fail(400, "Invitation invalide ou déjà utilisée.");
+    if (invitation.expiresAt < new Date()) fail(400, "Invitation expirée. Demandez une nouvelle invitation à la crèche.");
+    if (invitation.email.toLowerCase() !== email.toLowerCase()) fail(400, "Cette invitation a été envoyée à une autre adresse e-mail.");
+    if (!["parent", "medecin"].includes(invitation.role)) fail(400, "Rôle d'invitation invalide.");
+  }
+
   if (await prisma.user.findUnique({ where: { email } })) fail(409, "Cet e-mail est déjà utilisé");
   const user = await prisma.user.create({
-    data: { email, prenom, nom, telephone, role: "parent", motDePasseHash: await bcrypt.hash(password, 10) },
+    data: { email, prenom, nom, telephone, role: invitation?.role ?? "parent", motDePasseHash: await bcrypt.hash(password, 10) },
   });
+
+  // Une invitation nominative lie automatiquement le nouveau compte au dossier.
+  let invitationsAcceptees = 0;
+  if (invitationToken) {
+    const invitations = await prisma.liaisonInvitation.findMany({
+      where: { email: { equals: email, mode: "insensitive" }, statut: "en_attente", expiresAt: { gt: new Date() } },
+    });
+    for (const inv of invitations) {
+      await prisma.liaison.upsert({
+        where: { enfantId_userId: { enfantId: inv.enfantId, userId: user.id } },
+        update: { role: inv.role },
+        create: { enfantId: inv.enfantId, userId: user.id, role: inv.role, source: "invitation" },
+      });
+    }
+    if (invitations.length) {
+      await prisma.liaisonInvitation.updateMany({ where: { id: { in: invitations.map((i) => i.id) } }, data: { statut: "acceptee", acceptedAt: new Date() } });
+      invitationsAcceptees = invitations.length;
+    }
+  }
+
+  // Code de liaison saisi à l'inscription : rattache aussi l'enfant.
+  const code = String(req.body.codeLiaison ?? "").trim().toUpperCase();
+  if (code) {
+    const enfant = await prisma.enfant.findUnique({ where: { codeLiaison: code } });
+    if (enfant) {
+      await prisma.liaison.upsert({
+        where: { enfantId_userId: { enfantId: enfant.id, userId: user.id } },
+        update: { role: user.role },
+        create: { enfantId: enfant.id, userId: user.id, role: user.role, source: "code" },
+      });
+    }
+  }
+
   await sendEmail(email, "Bienvenue sur Kids'Med", "auth-welcome", { prenom: prenom ?? "", lien_action: process.env.FRONTEND_URL ?? "" });
-  ok(res, publicUser(user), 201);
+  ok(res, { ...publicUser(user), invitationsAcceptees }, 201);
 }));
 
 // Étape 1 : identifiants → jeton provisoire (avant SMS)
