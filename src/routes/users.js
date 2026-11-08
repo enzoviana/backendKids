@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, publicUser, isAdmin, fullName } from '../lib/core.js';
 import { signFile, sendEmail, emailService } from '../lib/services.js';
+import { persistUpload } from '../lib/file-store.js';
 
 const router = express.Router();
 
@@ -97,6 +98,7 @@ router.post("/enfants/:enfantId/photo", auth(), upload.single("photo"), ah(async
   if (!req.file) fail(400, "Champs manquants : photo (jpg/png/webp ≤ 2 Mo)");
   const { assertEnfant } = await import('../lib/access.js');
   await assertEnfant(req.user, req.params.enfantId);
+  await persistUpload(req.file);
   const photoUrl = signFile(req.file.filename, 3600 * 24 * 365);
   await prisma.enfant.update({ where: { id: req.params.enfantId }, data: { photoUrl } });
   ok(res, { photoUrl });
@@ -104,6 +106,7 @@ router.post("/enfants/:enfantId/photo", auth(), upload.single("photo"), ah(async
 
 router.post("/users/me/avatar", auth(), upload.single("photo"), ah(async (req, res) => {
   if (!req.file) fail(400, "Champs manquants : photo (jpg/png/webp ≤ 2 Mo)");
+  await persistUpload(req.file);
   const avatarUrl = signFile(req.file.filename, 3600 * 24 * 365);
   await prisma.user.update({ where: { id: req.user.id }, data: { avatarUrl } });
   ok(res, { avatarUrl });

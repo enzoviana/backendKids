@@ -16,8 +16,7 @@ CROSS JOIN (
     ('Carnet de vaccination', 'Vaccins obligatoires à jour', 12),
     ('Justificatif de domicile', 'Justificatif de moins de 3 mois', 12),
     ('Attestation CAF', 'Attestation d''allocations familiales', 12),
-    ('Autorisation de soins', 'Autorisation parentale en cas d''urgence', NULL),
-    ('PAI signé (si allergie)', 'Projet d''accueil individualisé', 12)
+    ('Autorisation de soins', 'Autorisation parentale en cas d''urgence', NULL)
 ) AS d(type, description, validite_mois)
 WHERE NOT EXISTS (
   SELECT 1 FROM "DocumentObligatoire" o WHERE o."etablissementId" = e.id

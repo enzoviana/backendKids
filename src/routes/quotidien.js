@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, toDate, notify, isAdmin } from '../lib/core.js';
 import { assertEtab, assertEnfant, enfantScope, etabScope } from '../lib/access.js';
 import {  signFile } from '../lib/services.js';
+import { persistUpload } from '../lib/file-store.js';
 
 const router = express.Router();
 
@@ -47,6 +48,13 @@ function crudEtab(base, model, requiredFields, mapIn = (b) => b, include, writeR
 crudEtab("sections", "section", ["nom"], (b) => ({ nom: b.nom, ageMin: b.ageMin != null ? Number(b.ageMin) : undefined, ageMax: b.ageMax != null ? Number(b.ageMax) : undefined, capacite: b.capacite != null ? Number(b.capacite) : undefined }), { _count: { select: { enfants: true } } });
 crudEtab("personnels", "personnel", ["prenom", "nom"], (b) => ({ prenom: b.prenom, nom: b.nom, poste: b.poste, email: b.email, telephone: b.telephone }));
 crudEtab("documents-obligatoires", "documentObligatoire", ["type"], (b) => ({ type: b.type, description: b.description, validiteMois: b.validiteMois != null ? Number(b.validiteMois) : undefined }), undefined, ["creche", "admin", "superadmin", "developpeur"]);
+
+/** Documents d'inscription exigés pour l'établissement de l'enfant (accessible aux parents liés). */
+router.get("/documents-obligatoires/enfant/:enfantId", auth(), ah(async (req, res) => {
+  const e = await assertEnfant(req.user, req.params.enfantId);
+  if (!e.etablissementId) return ok(res, []);
+  ok(res, await prisma.documentObligatoire.findMany({ where: { etablissementId: e.etablissementId }, orderBy: { createdAt: "desc" } }));
+}));
 
 router.get("/sections/stats/:etablissementId", auth(), ah(async (req, res) => {
   await assertEtab(req.user, etabParam(req));
@@ -196,6 +204,7 @@ const withUrl = (d) => ({ ...d, url: signFile(path.basename(d.url)) });
 
 async function createDoc(req, extra = {}) {
   if (!req.file) fail(400, "Champs manquants : fichier (PDF/JPG/PNG ≤ 10 Mo)");
+  await persistUpload(req.file);
   const enfantId = req.body.enfant || req.body.enfantId;
   let etablissementId = req.body.etablissementId || req.user.etablissementId || null;
   if (enfantId) etablissementId = (await assertEnfant(req.user, enfantId)).etablissementId;

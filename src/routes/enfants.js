@@ -133,7 +133,9 @@ router.put("/enfants/:enfantId/consentements/:type", auth(), roles("parent"), ah
 }));
 
 // ---------- Notes crèche / médecin ----------
-const PROS = ["medecin", "rsai", "admin", "superadmin", "developpeur"];
+// Les notes médicales sont visibles par l'équipe professionnelle (crèche, RSAI,
+// médecin, admin, dev) et jamais par les parents.
+const PROS = ["creche", "medecin", "rsai", "admin", "superadmin", "developpeur"];
 router.get("/enfants/:enfantId/notes", auth(), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
   const where = { enfantId: req.params.enfantId, ...(PROS.includes(req.user.role) ? {} : { visibilite: "publique" }) };
@@ -142,7 +144,9 @@ router.get("/enfants/:enfantId/notes", auth(), ah(async (req, res) => {
 router.post("/enfants/:enfantId/notes", auth(), roles("creche", "medecin", "rsai"), ah(async (req, res) => {
   const e = await assertEnfant(req.user, req.params.enfantId);
   required(req.body, ["contenu"]);
-  const visibilite = req.body.visibilite === "medicale" && req.user.role !== "creche" ? "medicale" : "publique";
+  // La crèche peut elle aussi rédiger une note médicale interne : elle ne doit
+  // jamais être rabattue en « publique » et rester invisible des parents.
+  const visibilite = req.body.visibilite === "medicale" ? "medicale" : "publique";
   const n = await prisma.note.create({ data: { enfantId: e.id, auteurId: req.user.id, auteurNom: fullName(req.user), auteurRole: req.user.role, visibilite, destinataire: req.body.destinataire, contenu: req.body.contenu } });
   if (req.body.destinataire === "creche" && e.etablissementId) {
     const staff = await prisma.user.findMany({ where: { etablissementId: e.etablissementId, role: "creche" }, select: { id: true } });
@@ -181,12 +185,13 @@ const inviteLink = (email, token) => `${frontendBase()}/app?page=register&email=
 
 function invitationHtml({ prenom, enfantNom, etablissementNom, role, link }) {
   const roleLabel = role === "medecin" ? "médecin" : "parent";
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   return `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#1f2937">
     <h1>Kids'Med IA — invitation</h1>
-    <p>Bonjour${prenom ? ` ${prenom}` : ""},</p>
-    <p>La crèche${etablissementNom ? ` <strong>${etablissementNom}</strong>` : ""} vous invite à rejoindre le dossier de <strong>${enfantNom}</strong> en tant que ${roleLabel}.</p>
+    <p>Bonjour${prenom ? ` ${esc(prenom)}` : ""},</p>
+    <p>La crèche${etablissementNom ? ` <strong>${esc(etablissementNom)}</strong>` : ""} vous invite à rejoindre le dossier de <strong>${esc(enfantNom)}</strong> en tant que ${roleLabel}.</p>
     <p>Créez votre compte avec cette adresse e-mail pour accéder au dossier :</p>
-    <p><a href="${link}" style="display:inline-block;background:#0095ff;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">Créer mon compte</a></p>
+    <p><a href="${esc(link)}" style="display:inline-block;background:#0095ff;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none">Créer mon compte</a></p>
     <p>Ce lien est valable 7 jours. Si vous avez déjà un compte, connectez-vous puis saisissez le code de liaison fourni par la crèche.</p>
     <p style="font-size:12px;color:#6b7280">Si vous n'êtes pas concerné, ignorez cet e-mail.</p>
   </body></html>`;

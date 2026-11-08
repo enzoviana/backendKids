@@ -8,6 +8,7 @@ import { verifierAcces, canAccessEnfant } from '../lib/access.js';
 import { rememberGeo } from '../lib/geo-session.js';
 import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
 import { snapshot, metrics,  verifyFile } from '../lib/services.js';
+import { readStoredFile } from '../lib/file-store.js';
 
 const router = express.Router();
 
@@ -50,13 +51,21 @@ router.get("/health", ah(async (_req, res) => {
 }));
 
 // ---------- Fichiers signés ----------
-router.get("/fichiers/:name", (req, res) => {
-  const name = path.basename(req.params.name);
-  if (!verifyFile(name, req.query.exp, req.query.sig)) return res.status(403).json({ success: false, error: "Lien expiré ou invalide" });
-  const f = path.resolve(UPLOAD_DIR, name);
-  if (!fs.existsSync(f) || !fs.statSync(f).isFile()) return res.status(404).json({ success: false, error: "Fichier introuvable" });
-  res.setHeader("Content-Disposition", `inline; filename="${name.replace(/"/g, "")}"`);
-  res.sendFile(f);
+router.get("/fichiers/:name", async (req, res, next) => {
+  try {
+    const name = path.basename(req.params.name);
+    if (!verifyFile(name, req.query.exp, req.query.sig)) return res.status(403).json({ success: false, error: "Lien expiré ou invalide" });
+    const stored = await readStoredFile(name);
+    if (!stored) return res.status(404).json({ success: false, error: "Fichier introuvable" });
+    res.setHeader("Content-Disposition", `inline; filename="${name.replace(/"/g, "")}"`);
+    if (stored.buffer) {
+      res.setHeader("Content-Type", stored.mimeType ?? "application/octet-stream");
+      return res.send(stored.buffer);
+    }
+    res.sendFile(stored.path);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ---------- Règles d'accès ----------

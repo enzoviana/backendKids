@@ -259,6 +259,17 @@ model DocumentObligatoire {
   createdAt       DateTime @default(now())
 }
 
+/// Copie persistante des fichiers téléversés : si le disque Render est éphémère
+/// ou réinitialisé, le fichier reste servi depuis PostgreSQL.
+model Fichier {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  mimeType  String?
+  taille    Int?
+  data      Bytes
+  createdAt DateTime @default(now())
+}
+
 model Vaccin {
   id        String    @id @default(uuid())
   enfantId  String

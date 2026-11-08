@@ -8,7 +8,6 @@ export const DEFAULT_DOCUMENTS_OBLIGATOIRES = [
   { type: "Justificatif de domicile", description: "Justificatif de moins de 3 mois", validiteMois: 12 },
   { type: "Attestation CAF", description: "Attestation d'allocations familiales", validiteMois: 12 },
   { type: "Autorisation de soins", description: "Autorisation parentale en cas d'urgence", validiteMois: null },
-  { type: "PAI signé (si allergie)", description: "Projet d'accueil individualisé", validiteMois: 12 },
 ];
 
 /** Crée les documents obligatoires par défaut s'ils n'existent pas déjà pour la crèche. */

@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, notify, fullName } from '../lib/core.js';
 import { assertEnfant, enfantScope, assertEtab } from '../lib/access.js';
 import { signFile } from '../lib/services.js';
+import { persistUpload } from '../lib/file-store.js';
 
 const router = express.Router();
 
@@ -92,6 +93,7 @@ router.post("/diagnostics/analyser", auth(), upload.single("photo"), ah(async (r
   if (typeof symptomes === "string") { try { symptomes = JSON.parse(symptomes); } catch { symptomes = symptomes.split(","); } }
   const temperature = req.body.temperature ? Number(req.body.temperature) : null;
   const r = analyse(symptomes, temperature);
+  if (req.file) await persistUpload(req.file);
   const d = await prisma.diagnostic.create({ data: { enfantId: e.id, auteurId: req.user.id, symptomes, temperature, duree: req.body.duree, commentaire: req.body.commentaire, photoUrl: req.file?.filename, resultat: r.diagnostics, diagnosticSuggere: r.diagnosticSuggere, confiance: r.confiance, niveauRisque: r.niveauRisque, conseils: r.conseils, orientation: r.orientation } });
   if (r.niveauRisque !== "faible") {
     const l = await prisma.liaison.findMany({ where: { enfantId: e.id } });

@@ -7,6 +7,7 @@ import { assertEtab, etabScope } from '../lib/access.js';
 import { DEFAULT_SECURITE, effectiveSecurity, getGlobalSecurity, normalizePlages } from '../lib/security-defaults.js';
 import { signFile } from '../lib/services.js';
 import { ensureDefaultDocuments } from '../lib/documents-obligatoires.js';
+import { persistUpload } from '../lib/file-store.js';
 
 const router = express.Router();
 
@@ -66,6 +67,7 @@ router.put("/:etablissementId", auth(), roles("creche"), ah(async (req, res) => 
 router.post("/:etablissementId/photo", auth(), roles("creche"), upload.single("photo"), ah(async (req, res) => {
   await assertEtab(req.user, req.params.etablissementId);
   if (!req.file) fail(400, "Champs manquants : photo (JPG, PNG ou WebP ≤ 2 Mo)");
+  await persistUpload(req.file);
   const photoUrl = signFile(req.file.filename, 3600 * 24 * 365);
   await prisma.etablissement.update({ where: { id: req.params.etablissementId }, data: { photoUrl } });
   ok(res, { photoUrl });
