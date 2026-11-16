@@ -1023,14 +1023,71 @@ export async function sendSms(phoneNumber, message) {
 
 /**
  * Metrics middleware
+ *
+ * Enregistre chaque appel dans `metrics.perEndpoint` (compteur, temps total, erreurs 5xx,
+ * horodatages des derniers appels) et dans `metrics.hourly` (seaux horaires sur 24 h).
+ * Sans cet enregistrement, `/developer/metrics` renvoyait toujours des zéros et
+ * `/developer/endpoints` une liste vide, ce qui laissait les graphiques de la console
+ * développeur vides.
  */
 export function metricsMiddleware(req, res, next) {
   const start = Date.now();
+  // `req.path` est réécrit par le routeur Express pendant le dispatch : on fige l'URL
+  // d'origine pour que l'exclusion des sondes de santé reste fiable.
+  const fullPath = (req.originalUrl || req.path || "").split("?")[0];
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${req.method}] ${req.path} - ${res.statusCode} - ${duration}ms`);
+    const now = Date.now();
+    try {
+      if (!fullPath.endsWith("/health")) {
+        recordCall(req, res, duration, now, fullPath);
+      }
+    } catch (err) {
+      console.error('[metrics] enregistrement impossible', err?.message || err);
+    }
+    console.log(`[${req.method}] ${fullPath} - ${res.statusCode} - ${duration}ms`);
   });
   next();
+}
+
+/** Nombre maximum d'horodatages conservés par endpoint (fenêtre 24 h). */
+const METRICS_MAX_CALLS = 5000;
+const METRICS_MAX_HOURS = 25;
+
+/** Chemin « route » plutôt que l'URL réelle : regroupe /api/enfants/abc sous /enfants/:id. */
+function metricsKey(req, fullPath) {
+  const routePath = req.route?.path;
+  if (typeof routePath === 'string') return `${req.method} ${req.baseUrl || ''}${routePath}`;
+  return `${req.method} ${fullPath}`;
+}
+
+function recordCall(req, res, duration, now, fullPath) {
+  const key = metricsKey(req, fullPath);
+  const existing = metrics.perEndpoint.get(key);
+  // Garde-fou mémoire : les URL à paramètre libre (fichiers statiques) créeraient une
+  // entrée par nom de fichier. Au-delà de 500 routes distinctes, on ignore les nouvelles.
+  if (!existing && metrics.perEndpoint.size >= 500) return;
+  const entry = existing || { n: 0, totalMs: 0, errors: 0, calls: [] };
+  entry.n += 1;
+  entry.totalMs += duration;
+  if (res.statusCode >= 500) entry.errors += 1;
+  entry.calls.push(now);
+  if (entry.calls.length > METRICS_MAX_CALLS) {
+    entry.calls.splice(0, entry.calls.length - METRICS_MAX_CALLS);
+  }
+  metrics.perEndpoint.set(key, entry);
+
+  const hourStart = new Date(now).setMinutes(0, 0, 0);
+  const bucket = metrics.hourly.get(hourStart) || { calls: 0, totalMs: 0, errors: 0 };
+  bucket.calls += 1;
+  bucket.totalMs += duration;
+  if (res.statusCode >= 500) bucket.errors += 1;
+  metrics.hourly.set(hourStart, bucket);
+  if (metrics.hourly.size > METRICS_MAX_HOURS) {
+    for (const ts of [...metrics.hourly.keys()].sort((a, b) => a - b).slice(0, metrics.hourly.size - METRICS_MAX_HOURS)) {
+      metrics.hourly.delete(ts);
+    }
+  }
 }
 
 /**
@@ -1127,7 +1184,38 @@ export async function cfg(key, defaultValue) {
  */
 export const metrics = {
   perEndpoint: new Map(),
+  /** Seaux horaires (timestamp de l'heure → { calls, totalMs, errors }) sur 24 h. */
+  hourly: new Map(),
 };
+
+const round = (v, digits = 0) => {
+  const f = 10 ** digits;
+  return Math.round(v * f) / f;
+};
+
+/**
+ * Série horaire au format attendu par la console développeur.
+ *
+ * On ne remonte pas au-delà du démarrage du serveur : les heures précédentes n'ont pas
+ * été mesurées (et non « zéro requête »), ce qui évite une longue ligne plate à 0 suivie
+ * d'un pic artificiel après un redéploiement.
+ */
+function history24h(now = Date.now()) {
+  const HOUR = 3600 * 1000;
+  const currentHour = new Date(now).setMinutes(0, 0, 0);
+  const startedHour = Math.floor((now - process.uptime() * 1000) / HOUR) * HOUR;
+  const firstHour = Math.max(currentHour - 23 * HOUR, startedHour);
+  const points = [];
+  for (let ts = firstHour; ts <= currentHour; ts += HOUR) {
+    const b = metrics.hourly.get(ts);
+    points.push({
+      time: new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      requests: b ? b.calls : 0,
+      latency: b && b.calls > 0 ? Math.round(b.totalMs / b.calls) : null,
+    });
+  }
+  return points;
+}
 
 
 /**
@@ -1140,28 +1228,52 @@ export function snapshot() {
   let totalCalls = 0;
   let totalMs = 0;
   let calls24h = 0;
+  let errors = 0;
 
   // Calculer les statistiques globales à partir des données de metrics.perEndpoint
   if (metrics && metrics.perEndpoint) {
     for (const entry of metrics.perEndpoint.values()) {
-      totalCalls += entry.n;
-      totalMs += entry.totalMs;
-      calls24h += entry.calls.filter((t) => now - t < 864e5).length;
+      totalCalls += entry.n || 0;
+      totalMs += entry.totalMs || 0;
+      errors += entry.errors || 0;
+      calls24h += (entry.calls || []).filter((t) => now - t < 864e5).length;
     }
   }
 
   const memoryUsage = process.memoryUsage();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const cores = os.cpus().length || 1;
+  const cpuUsage = Math.min(100, round((os.loadavg()[0] / cores) * 100, 1));
+  const memoryUsagePct = totalMem > 0 ? round(((totalMem - freeMem) / totalMem) * 100, 1) : 0;
+  const avgResponseTime = totalCalls > 0 ? Math.round(totalMs / totalCalls) : 0;
+  const errorRate = totalCalls > 0 ? round((errors / totalCalls) * 100, 2) : 0;
+  // Débit réel : on rapporte les appels des 24 h à la fenêtre réellement observée
+  // (temps depuis le démarrage du serveur, plafonné à 24 h) pour ne pas afficher 0
+  // quand l'instance vient de démarrer.
+  const observedMinutes = Math.max(1, Math.min(24 * 60, Math.floor(process.uptime() / 60)));
 
   return {
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
+    // --- Contrat attendu par la console développeur (src/lib/specs.ts → devMetrics) ---
+    requestsPerMinute: round(calls24h / observedMinutes, 1),
+    avgResponseTime,
+    errorRate,
+    cpu: cpuUsage,
+    memory: memoryUsagePct,
+    /** Disponibilité = part des appels non terminés par une erreur serveur (5xx), en %. */
+    uptime: round(100 - errorRate, 2),
+    history: history24h(now),
     system: {
       platform: process.platform,
       arch: process.arch,
       nodeVersion: process.version,
       cpuLoad: os.loadavg(),
-      freeMemoryMB: Math.round(os.freemem() / 1024 / 1024),
-      totalMemoryMB: Math.round(os.totalmem() / 1024 / 1024),
+      cpuCount: cores,
+      cpuUsage,
+      freeMemoryMB: Math.round(freeMem / 1024 / 1024),
+      totalMemoryMB: Math.round(totalMem / 1024 / 1024),
     },
     process: {
       memoryRssMB: Math.round(memoryUsage.rss / 1024 / 1024),
@@ -1171,7 +1283,8 @@ export function snapshot() {
     requests: {
       totalCalls,
       calls24h,
-      avgResponseTimeMs: totalCalls > 0 ? Math.round(totalMs / totalCalls) : 0,
+      errors,
+      avgResponseTimeMs: avgResponseTime,
       activeEndpoints: metrics?.perEndpoint?.size || 0,
     },
   };
