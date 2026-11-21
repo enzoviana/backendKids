@@ -97,7 +97,10 @@ router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
       where: { OR: [{ id: recherche }, { nom: { equals: recherche, mode: "insensitive" } }] },
     });
   }
-  if (!tarif) fail(404, "Forfait introuvable");
+  if (!tarif) {
+    const disponibles = await prisma.tarif.findMany({ where: { actif: true }, select: { nom: true }, take: 20 });
+    fail(404, `Forfait introuvable${recherche ? ` : « ${recherche} »` : ""}`, { forfaitsDisponibles: disponibles.map((t) => t.nom) });
+  }
   const annuel = req.body.periodicite === "annuel";
   const unit = Math.round((annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel) * 100);
   const frontend = await returnOrigin(req);
