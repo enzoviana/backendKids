@@ -65,7 +65,8 @@ const finPeriode = (sub) => {
 };
 
 /** Statut applicatif correspondant à un statut d'abonnement Stripe. */
-const statutStripe = (statut) => ["active", "trialing"].includes(statut) ? "actif"
+const statutStripe = (statut) => ["active"].includes(statut) ? "actif"
+  : ["trialing"].includes(statut) ? "essai"
   : ["past_due", "unpaid"].includes(statut) ? "suspendu"
   : ["canceled", "incomplete_expired"].includes(statut) ? "resilie"
   : "en_attente";
@@ -112,7 +113,7 @@ router.get("/tarifs", auth(), ah(async (req, res) => {
   ok(res, await prisma.tarif.findMany({ where, orderBy: { prixMensuel: "asc" } }));
 }));
 router.get("/tarifs/actifs", auth(), ah(async (_req, res) => ok(res, await prisma.tarif.findMany({ where: { actif: true }, orderBy: { prixMensuel: "asc" } }))));
-const tarifData = (b) => ({ nom: b.nom, roleCible: b.roleCible, prixMensuel: b.prixMensuel != null ? Number(b.prixMensuel) : undefined, prixAnnuel: b.prixAnnuel != null && b.prixAnnuel !== "" ? Number(b.prixAnnuel) : undefined, actif: b.actif != null ? b.actif === true || b.actif === "true" : undefined, stripePriceId: b.stripePriceId,
+const tarifData = (b) => ({ nom: b.nom, roleCible: b.roleCible, prixMensuel: b.prixMensuel != null ? Number(b.prixMensuel) : undefined, prixAnnuel: b.prixAnnuel != null && b.prixAnnuel !== "" ? Number(b.prixAnnuel) : undefined, joursEssai: b.joursEssai !== undefined && b.joursEssai !== null ? Math.min(730, Math.max(0, Math.trunc(Number(b.joursEssai) || 0))) : undefined, actif: b.actif != null ? b.actif === true || b.actif === "true" : undefined, stripePriceId: b.stripePriceId,
   fonctionnalites: Array.isArray(b.fonctionnalites) ? b.fonctionnalites : typeof b.fonctionnalites === "string" ? b.fonctionnalites.split(/[,\n]/).map((s) => s.trim()).filter(Boolean) : undefined });
 router.post("/tarifs", auth(), roles(), ah(async (req, res) => {
   required(req.body, ["nom", "prixMensuel"]);
@@ -189,9 +190,6 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
   const publishableKey = await cfg("STRIPE_PUBLISHABLE_KEY", "");
   if (!publishableKey) fail(503, "Paiement indisponible : STRIPE_PUBLISHABLE_KEY n'est pas configurée sur le serveur");
 
-  const priceId = await prixStripe(s, tarif, annuel);
-  if (!priceId) fail(400, "Ce forfait n'a pas de prix Stripe valide");
-
   // Client Stripe réutilisé s'il existe déjà.
   let customerId = abonnement?.stripeCustomerId ?? null;
   if (!customerId) {
@@ -203,28 +201,77 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
     customerId = client.id;
   }
 
-  const meta = { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom };
+  const joursEssai = Math.min(730, Math.max(0, Math.trunc(Number(tarif.joursEssai) || 0)));
+  const meta = {
+    userId: req.user.id,
+    etablissementId: req.user.etablissementId ?? "",
+    tarifId: tarif.id,
+    plan: tarif.nom,
+    periodicite: annuel ? "annuel" : "mensuel",
+    joursEssai: String(joursEssai),
+  };
+
+  // Abonnement existant : distingue un changement de formule d'un premier essai.
+  let actuel = null;
+  if (abonnement?.stripeSubscriptionId) {
+    try { actuel = await s.subscriptions.retrieve(abonnement.stripeSubscriptionId); } catch { /* recréation */ }
+  }
+  const existantUtilisable = !!actuel && ["active", "trialing", "past_due", "incomplete"].includes(actuel.status);
+
+  // Essai gratuit : on collecte d'abord une carte (SetupIntent). L'abonnement est
+  // créé après confirmation, pour ne jamais démarrer un essai sans moyen de paiement.
+  if (joursEssai > 0 && !existantUtilisable) {
+    const setup = await s.setupIntents.create({
+      customer: customerId,
+      usage: "off_session",
+      payment_method_types: ["card"],
+      metadata: meta,
+    });
+    const data = {
+      plan: tarif.nom,
+      statut: "en_attente",
+      prixMensuel: Number(tarif.prixMensuel),
+      gratuit: false,
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: null,
+      dateDebut: new Date(),
+      dateFin: null,
+    };
+    abonnement = abonnement
+      ? await prisma.abonnement.update({ where: { id: abonnement.id }, data })
+      : await prisma.abonnement.create({ data: { ...portee, ...data } });
+    return ok(res, {
+      abonnementId: abonnement.id,
+      clientSecret: setup.client_secret,
+      publishableKey,
+      montant: 0,
+      devise: "eur",
+      plan: tarif.nom,
+      prixMensuel: Number(tarif.prixMensuel),
+      joursEssai,
+      mode: "setup",
+      setupIntentId: setup.id,
+      statut: "en_attente",
+    });
+  }
+
+  const priceId = await prixStripe(s, tarif, annuel);
+  if (!priceId) fail(400, "Ce forfait n'a pas de prix Stripe valide");
+
   let sub = null;
   let miseANiveau = false;
 
   // Changement de formule : modification de l'abonnement existant (avec prorata).
-  if (abonnement?.stripeSubscriptionId) {
-    try {
-      const actuel = await s.subscriptions.retrieve(abonnement.stripeSubscriptionId);
-      if (["active", "trialing", "past_due", "incomplete"].includes(actuel.status)) {
-        miseANiveau = ["active", "trialing"].includes(actuel.status);
-        const item = actuel.items?.data?.[0];
-        sub = await s.subscriptions.update(actuel.id, {
-          items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
-          proration_behavior: "always_invoice",
-          payment_behavior: "default_incomplete",
-          expand: ["latest_invoice.payment_intent"],
-          metadata: meta,
-        });
-      }
-    } catch (e) {
-      console.warn("Stripe : abonnement existant inutilisable, création d'un nouveau —", e?.message ?? e);
-    }
+  if (existantUtilisable) {
+    miseANiveau = ["active", "trialing"].includes(actuel.status);
+    const item = actuel.items?.data?.[0];
+    sub = await s.subscriptions.update(actuel.id, {
+      items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
+      proration_behavior: "always_invoice",
+      payment_behavior: "default_incomplete",
+      expand: ["latest_invoice.payment_intent"],
+      metadata: meta,
+    });
   }
 
   if (!sub) {
@@ -235,6 +282,7 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
       payment_settings: { save_default_payment_method: "on_subscription" },
       expand: ["latest_invoice.payment_intent"],
       metadata: meta,
+      ...(joursEssai > 0 ? { trial_period_days: joursEssai } : {}),
     });
   }
 
@@ -295,10 +343,48 @@ router.post("/abonnements/paiement/finaliser", auth(), ah(async (req, res) => {
   if (!abo) fail(404, "Abonnement introuvable");
   const possede = abo.userId === req.user.id || (!!abo.etablissementId && abo.etablissementId === req.user.etablissementId);
   if (!possede) fail(403, "Abonnement non accessible");
-  if (!abo.stripeSubscriptionId) return ok(res, { statut: abo.statut, plan: abo.plan, dateFin: abo.dateFin });
 
   const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
+
+  // Essai gratuit : la carte a été confirmée via SetupIntent, on crée maintenant
+  // l'abonnement en essai avec ce moyen de paiement comme défaut.
+  const setupIntentId = req.body?.setupIntentId ? String(req.body.setupIntentId) : null;
+  if (setupIntentId && !abo.stripeSubscriptionId) {
+    const setup = await s.setupIntents.retrieve(setupIntentId);
+    if (setup.status !== "succeeded" || !setup.payment_method) fail(400, "Carte non confirmée");
+    if (setup.customer && abo.stripeCustomerId && setup.customer !== abo.stripeCustomerId) {
+      fail(403, "Moyen de paiement non associé à cet abonnement");
+    }
+    const tarifId = setup.metadata?.tarifId;
+    const tarif = tarifId ? await prisma.tarif.findUnique({ where: { id: tarifId } }) : null;
+    if (!tarif) fail(400, "Forfait introuvable");
+    const priceId = await prixStripe(s, tarif, setup.metadata?.periodicite === "annuel");
+    if (!priceId) fail(400, "Ce forfait n'a pas de prix Stripe valide");
+    const joursEssai = Math.min(730, Math.max(0, Math.trunc(Number(tarif.joursEssai) || 0)));
+    const sub = await s.subscriptions.create({
+      customer: abo.stripeCustomerId ?? setup.customer,
+      items: [{ price: priceId }],
+      default_payment_method: setup.payment_method,
+      ...(joursEssai > 0 ? { trial_period_days: joursEssai } : {}),
+      payment_behavior: "allow_incomplete",
+      metadata: setup.metadata ?? {},
+    });
+    const maj = await prisma.abonnement.update({
+      where: { id: abo.id },
+      data: {
+        stripeSubscriptionId: sub.id,
+        statut: statutStripe(sub.status),
+        plan: tarif.nom,
+        prixMensuel: Number(tarif.prixMensuel),
+        dateFin: sub.trial_end ? new Date(sub.trial_end * 1000) : (finPeriode(sub) ?? abo.dateFin),
+      },
+    });
+    return ok(res, { statut: maj.statut, plan: maj.plan, dateFin: maj.dateFin, essai: joursEssai });
+  }
+
+  if (!abo.stripeSubscriptionId) return ok(res, { statut: abo.statut, plan: abo.plan, dateFin: abo.dateFin });
+
   const sub = await s.subscriptions.retrieve(abo.stripeSubscriptionId);
   const statut = statutStripe(sub.status);
   const tarifId = sub.metadata?.tarifId;
@@ -340,6 +426,9 @@ router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
     customer_email: req.user.email,
     line_items: [tarif.stripePriceId ? { price: tarif.stripePriceId, quantity: 1 } : { quantity: 1, price_data: { currency: "eur", unit_amount: unit, recurring: { interval: annuel ? "year" : "month" }, product_data: { name: `Kids'Med — ${tarif.nom}` } } }],
     metadata: { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom },
+    ...(Math.min(730, Math.max(0, Math.trunc(Number(tarif.joursEssai) || 0))) > 0
+      ? { subscription_data: { trial_period_days: Math.min(730, Math.trunc(Number(tarif.joursEssai) || 0)) } }
+      : {}),
   };
   const session = await s.checkout.sessions.create(embedded
     ? { ...base, ui_mode: "embedded", redirect_on_completion: "if_required", return_url: retour }

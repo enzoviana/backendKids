@@ -433,6 +433,7 @@ model Tarif {
   roleCible       String   @default("tous")
   prixMensuel     Float
   prixAnnuel      Float?
+  joursEssai      Int      @default(0)
   fonctionnalites String[] @default([])
   actif           Boolean  @default(true)
   stripePriceId   String?

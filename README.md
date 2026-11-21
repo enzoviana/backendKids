@@ -105,15 +105,22 @@ Le paiement se fait sur une **page dédiée de l'application** (`/abonnement/pai
 **Stripe Payment Element** : formulaire natif intégré, sans redirection ni iframe de page, avec
 un design Kids'Med (récapitulatif de la formule, garanties, confirmation).
 
+`joursEssai` (console admin > Forfaits) définit une période d'essai par forfait :
+
+- **essai > 0, premier abonnement** : la carte est enregistrée via un **SetupIntent** (aucun
+  débit), puis l'abonnement est créé avec `trial_period_days` et le statut applicatif `essai` ;
+- première facturation à la fin de l'essai, puis mensuelle ;
+- **essai = 0** ou changement de formule d'un abonné existant : paiement immédiat classique.
+
 - `STRIPE_PUBLISHABLE_KEY` (`pk_live_…` / `pk_test_…`) est indispensable à cette page.
-- `STRIPE_SECRET_KEY` crée le client, le prix et l'abonnement (`default_incomplete`).
+- `STRIPE_SECRET_KEY` crée le client, le prix, le SetupIntent ou l'abonnement.
 - `STRIPE_WEBHOOK_SECRET` valide la signature du webhook `POST /api/webhooks/stripe`.
 
 Parcours :
 
-1. `POST /api/abonnements/paiement/intent` crée ou met à niveau l'abonnement et renvoie le
-   `clientSecret` du PaymentIntent, la clé publique, le montant et l'abonnement en attente.
-2. Le front confirme le paiement avec le Payment Element.
+1. `POST /api/abonnements/paiement/intent` renvoie le `clientSecret` (PaymentIntent ou
+   SetupIntent), la clé publique, le montant, la période d'essai et l'abonnement en attente.
+2. Le front confirme le paiement (`confirmPayment`) ou l'enregistrement de carte (`confirmSetup`).
 3. `POST /api/abonnements/paiement/finaliser` synchronise immédiatement le statut et l'échéance
    (le webhook reste la source de vérité).
 
@@ -123,5 +130,6 @@ par `CORS_ORIGINS`, avec repli sur `FRONTEND_URL`. Aucune URL d'hébergeur n'est
 Webhook Stripe (Dashboard → Développeurs → Webhooks) : écouter
 `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated`,
 `customer.subscription.deleted` et, pour l'ancien parcours hébergé, `checkout.session.completed`.
+
 
 
