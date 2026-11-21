@@ -1,6 +1,7 @@
 // Double authentification sans SMS : application TOTP, appareils de confiance, passkeys.
 import crypto from "crypto";
 import { prisma } from "./core.js";
+import { cfgSync } from "./runtime-config.js";
 
 const sha = (s) => crypto.createHash("sha256").update(String(s)).digest("hex");
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -98,8 +99,9 @@ async function methodsFor(user) {
 
 // ---------- Passkeys (WebAuthn) ----------
 function rp() {
-  const origins = (process.env.WEBAUTHN_ORIGINS || process.env.FRONTEND_URL || "http://localhost:8080").split(",").map((s) => s.trim());
-  const rpID = process.env.WEBAUTHN_RP_ID || new URL(origins[0]).hostname;
+  const origins = cfgSync("WEBAUTHN_ORIGINS", process.env.FRONTEND_URL || "http://localhost:8080")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const rpID = cfgSync("WEBAUTHN_RP_ID", new URL(origins[0] || "http://localhost:8080").hostname);
   return { rpID, rpName: "Kids'Med IA", origins };
 }
 

@@ -1,7 +1,19 @@
-import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email.js';
+import { createSMTPTransporter, emailConfig } from '../config/email.js';
 import { signFile, verifyFile } from './file-links.js';
+import {
+  cfg,
+  cfgSync,
+  cfgSource,
+  configSources,
+  clearConfigCache as clearRuntimeConfigCache,
+  preloadConfig,
+  CONFIG_KEYS,
+  READONLY_KEYS,
+  SECRET_KEYS,
+  maskSecret,
+} from './runtime-config.js';
 
-export { signFile, verifyFile };
+export { signFile, verifyFile, CONFIG_KEYS, READONLY_KEYS, SECRET_KEYS, cfg, cfgSync, cfgSource, configSources, maskSecret };
 import { renderTemplate, EmailTemplate } from '../utils/emailTemplates.js';
 import sgMail from '@sendgrid/mail';
 import twilio from 'twilio';
@@ -44,9 +56,10 @@ class EmailService {
   transporter = null;
   useSendGrid = false;
   initialized = false;
-  provider = 'sendgrid';
+  provider = 'auto';
   mode = 'mock';
   smtp = null;
+  sendgridConfigured = false;
   from = { ...emailConfig.from };
 
   constructor() {
@@ -65,6 +78,7 @@ class EmailService {
       host: await cfg('SMTP_HOST', emailConfig.smtp.host),
       port: smtpPort,
       secure: String(await cfg('SMTP_SECURE', String(emailConfig.smtp.secure))).toLowerCase() === 'true' || smtpPort === 465,
+      rejectUnauthorized: String(await cfg('SMTP_TLS_REJECT_UNAUTHORIZED', String(emailConfig.smtp.rejectUnauthorized))).toLowerCase() !== 'false',
       user: await cfg('SMTP_USER', emailConfig.smtp.auth.user),
       pass: await cfg('SMTP_PASSWORD', emailConfig.smtp.auth.pass),
     };
@@ -75,7 +89,7 @@ class EmailService {
       providerRaw: (await cfg('EMAIL_PROVIDER', emailConfig.provider)) || 'auto',
       from: { email: from.email || emailConfig.from.email, name: nomExpediteur || from.name || emailConfig.from.name },
       smtp,
-      mockMode: emailConfig.mockMode || process.env.EMAIL_MOCK_MODE === 'true',
+      mockMode: String(await cfg('EMAIL_MOCK_MODE', String(emailConfig.mockMode))).toLowerCase() === 'true',
     };
   }
 
@@ -96,6 +110,7 @@ class EmailService {
 
     const smtpReady = !!(smtp.host && smtp.user && smtp.pass);
     const sendgridReady = !!(sendgridKey && sendgridKey.trim());
+    this.sendgridConfigured = sendgridReady;
 
     if (mockMode) {
       this.mode = 'mock';
@@ -109,13 +124,18 @@ class EmailService {
         this.transporter = createSMTPTransporter(smtp);
         this.useSendGrid = false;
         this.mode = this.transporter ? 'smtp' : 'mock';
-        if (this.transporter) console.log('📮 Envoi via votre serveur SMTP — aucun fournisseur d’API requis');
+        if (this.transporter) {
+          console.log(`📮 Envoi via votre serveur SMTP (${smtp.host}:${smtp.port}) — EMAIL_PROVIDER=${this.provider} (source : ${cfgSource('EMAIL_PROVIDER')})`);
+        }
       } else if (mode === 'sendgrid') {
         sgMail.setApiKey(sendgridKey.trim());
         this.useSendGrid = true;
         this.transporter = null;
         this.mode = 'sendgrid';
-        console.log('✅ Envoi via SendGrid');
+        console.log(`✅ Envoi via SendGrid — EMAIL_PROVIDER=${this.provider} (source : ${cfgSource('EMAIL_PROVIDER')})`);
+        if (smtpReady) {
+          console.warn('⚠️ Votre configuration SMTP est complète mais SendGrid est forcé par EMAIL_PROVIDER=sendgrid. Passez à « smtp » ou « auto » dans la console développeur.');
+        }
       } else {
         this.useSendGrid = false;
         this.transporter = null;
@@ -168,13 +188,15 @@ class EmailService {
    */
   async diagnostic() {
     if (!this.initialized) await this.initialize();
-    const smtp = this.smtp ?? {
-      host: emailConfig.smtp.host,
-      port: emailConfig.smtp.port,
-      secure: emailConfig.smtp.secure,
-      user: emailConfig.smtp.auth.user,
-      pass: emailConfig.smtp.auth.pass,
-    };
+
+    // Relecture de la configuration effective : le rapport explique toujours la
+    // valeur réellement utilisée, même si le service n'a pas encore été réinitialisé.
+    const conf = await this.readConfig();
+    const smtp = conf.smtp;
+    const provider = (conf.providerRaw || 'auto').trim().toLowerCase();
+    const smtpPret = !!(smtp.host && smtp.user && smtp.pass);
+    const sendgridPret = !!(conf.sendgridKey && String(conf.sendgridKey).trim());
+    const providerSource = cfgSource('EMAIL_PROVIDER');
 
     let reachable = null;
     let erreur = null;
@@ -188,24 +210,53 @@ class EmailService {
       }
     }
 
+    let raison = '';
+    if (this.mode === 'smtp') {
+      raison = `Envoi via votre serveur SMTP (${smtp.host}:${smtp.port}).`;
+    } else if (this.mode === 'sendgrid') {
+      raison = provider === 'sendgrid'
+        ? `Envoi via SendGrid car EMAIL_PROVIDER=sendgrid (source : ${providerSource}). Passez à « smtp » ou « auto » pour utiliser votre SMTP.`
+        : 'Envoi via SendGrid en secours : la configuration SMTP est incomplète (hôte, identifiant ou mot de passe).';
+    } else if (conf.mockMode) {
+      raison = 'Mode simulation forcé par EMAIL_MOCK_MODE=true.';
+    } else if (provider === 'smtp') {
+      raison = 'EMAIL_PROVIDER=smtp mais la configuration SMTP est incomplète : mode simulation.';
+    } else if (provider === 'sendgrid') {
+      raison = 'EMAIL_PROVIDER=sendgrid mais SENDGRID_API_KEY est absente : mode simulation.';
+    } else {
+      raison = 'Aucun fournisseur opérationnel : mode simulation.';
+    }
+
+    const VISIBLES = [
+      'EMAIL_PROVIDER', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE',
+      'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'SENDGRID_API_KEY',
+      'EMAIL_MOCK_MODE', 'SMTP_TLS_REJECT_UNAUTHORIZED',
+    ];
+
     return {
-      providerDemande: this.provider,
+      providerDemande: provider,
+      providerSource,
       mode: this.mode,
       simule: this.isMock(),
-      adresseEnvoi: this.from,
+      raison,
+      smtpPret,
+      sendgridPret,
+      adresseEnvoi: conf.from,
       smtp: {
         hote: smtp.host,
         port: smtp.port,
         secure: !!smtp.secure,
         utilisateur: smtp.user ? `${String(smtp.user).slice(0, 3)}•••` : '',
         motDePasseConfigure: !!smtp.pass,
+        verificationCertificat: smtp.rejectUnauthorized === false ? 'désactivée' : 'activée',
         joignable: reachable,
         erreur,
         note: reachable === false
           ? "Le port SMTP n'est pas joignable depuis cette instance. Sur Render, les ports 25/465/587 sont bloqués pour les services gratuits : passez à une instance payante ou utilisez l'API HTTP d'un fournisseur."
           : null,
       },
-      sendgrid: { configure: !!emailConfig.sendgrid.apiKey },
+      sendgrid: { configure: sendgridPret },
+      variables: configSources(VISIBLES),
     };
   }
 
@@ -942,6 +993,10 @@ export const emailService = new EmailService();
 export async function clearConfigCache() {
   console.log('🔄 Réinitialisation de la configuration et des services...');
 
+  // Recharge les valeurs enregistrées en base dans le cache d'exécution.
+  clearRuntimeConfigCache();
+  await preloadConfig();
+
   // Réinitialiser le service email pour qu'il recharge la config
   await emailService.reinitialize();
 
@@ -1209,66 +1264,6 @@ function recordCall(req, res, duration, now, fullPath) {
       metrics.hourly.delete(ts);
     }
   }
-}
-
-/**
- * Clés de configuration disponibles
- */
-export const CONFIG_KEYS = [
-  'EMAIL_PROVIDER',
-  'SENDGRID_API_KEY',
-  'RESEND_API_KEY',
-  'EMAIL_FROM',
-  'SMTP_HOST',
-  'SMTP_PORT',
-  'SMTP_SECURE',
-  'SMTP_USER',
-  'SMTP_PASSWORD',
-  'SMTP_FROM_NAME',
-  'TWILIO_ACCOUNT_SID',
-  'TWILIO_AUTH_TOKEN',
-  'TWILIO_FROM',
-  'GEOCODING_API_KEY',
-  'MSG_MFA',
-  'MSG_ALERTE_ACCES',
-];
-
-/**
- * Clés qui doivent être masquées dans les réponses API
- */
-export const SECRET_KEYS = [
-  'SENDGRID_API_KEY',
-  'RESEND_API_KEY',
-  'SMTP_PASSWORD',
-  'TWILIO_AUTH_TOKEN',
-  'GEOCODING_API_KEY',
-];
-
-/**
- * Configuration getter
- * @param {string} key - Configuration key
- * @param {string} defaultValue - Default value if key not found
- */
-export async function cfg(key, defaultValue) {
-  // Import prisma dynamically to avoid circular dependency
-  const { prisma } = await import('./core.js');
-
-  try {
-    // Try to get from database first
-    const entry = await prisma.configEntry.findUnique({
-      where: { key }
-    });
-
-    if (entry && entry.value) {
-      return entry.value;
-    }
-  } catch (error) {
-    // If database query fails, fall back to environment variables
-    console.warn(`Could not fetch config from database for key ${key}:`, error.message);
-  }
-
-  // Fall back to environment variable or default value
-  return process.env[key] || defaultValue || '';
 }
 
 /**

@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, genCode, toDate, logSecu, notify, fullName } from '../lib/core.js';
 import { assertEnfant, assertEtab, enfantScope } from '../lib/access.js';
-import { sendEmail, emailService } from '../lib/services.js';
+import { sendEmail, emailService, cfg } from '../lib/services.js';
 
 const router = express.Router();
 
@@ -236,8 +236,8 @@ router.post("/enfants/:enfantId/echanges-documents", auth(), roles("creche", "me
 
 // ---------- Liaisons ----------
 const INVITABLE_ROLES = ["parent", "medecin"];
-const frontendBase = () => (process.env.FRONTEND_URL || "https://kidsmedia.vercel.app").replace(/\/+$/, "");
-const inviteLink = (email, token) => `${frontendBase()}/app?page=register&email=${encodeURIComponent(email)}&invitation=${encodeURIComponent(token)}`;
+const frontendBase = async () => (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/+$/, "");
+const inviteLink = async (email, token) => `${await frontendBase()}/app?page=register&email=${encodeURIComponent(email)}&invitation=${encodeURIComponent(token)}`;
 
 function invitationHtml({ prenom, enfantNom, etablissementNom, role, link }) {
   const roleLabel = role === "medecin" ? "médecin" : "parent";
@@ -306,7 +306,7 @@ router.post("/liaisons", auth(), roles("creche", "parent"), ah(async (req, res) 
       create: { enfantId, email, role, token, expiresAt, createdById: req.user.id },
     });
     const etablissement = enfant.etablissementId ? await prisma.etablissement.findUnique({ where: { id: enfant.etablissementId }, select: { nom: true } }) : null;
-    const link = inviteLink(email, token);
+    const link = await inviteLink(email, token);
     let emailSent = false;
     try {
       const envoi = await sendEmail(

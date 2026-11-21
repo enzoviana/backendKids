@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import { prisma, HttpError } from './lib/core.js';
-import { metricsMiddleware } from './lib/services.js';
+import { metricsMiddleware, emailService } from './lib/services.js';
 import authRoutes from './routes/auth.js';
 import etablissementsRoutes from './routes/etablissements.js';
 import coordinationRoutes from './routes/coordination.js';
@@ -18,12 +18,27 @@ import abonnementsRoutes from './routes/abonnements.js';
 import adminRoutes from './routes/admin.js';
 import terrainRoutes from './routes/terrain.js';
 import { readStoredFile } from './lib/file-store.js';
+import { preloadConfig, cfgSync } from './lib/runtime-config.js';
+
+// Charge les valeurs enregistrées dans la console développeur avant de construire
+// l'application : CORS et les services d'envoi en ont besoin dès le démarrage.
+await preloadConfig();
 
 const app = express();
 app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-const origins = (process.env.CORS_ORIGINS || "*").split(",").map((s) => s.trim());
-app.use(cors({ origin: origins.includes("*") ? true : origins, credentials: true }));
+
+// Origines relues à chaque requête : une modification dans la console développeur
+// prend effet sans redémarrage.
+const corsOrigins = () => (cfgSync('CORS_ORIGINS', '*') || '*').split(',').map((s) => s.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, cb) {
+    const allowed = corsOrigins();
+    if (allowed.includes('*') || !origin) return cb(null, true);
+    cb(null, allowed.includes(origin));
+  },
+  credentials: true,
+}));
 app.use(morgan("dev"));
 app.use(metricsMiddleware);
 
@@ -96,4 +111,11 @@ app.use(async (err, req, res, _next) => {
 });
 
 const port = process.env.PORT || 4000;
+
+// Initialise l'envoi d'e-mails au démarrage : le fournisseur réellement retenu et
+// l'origine de son réglage apparaissent immédiatement dans les logs.
+emailService.initialize()
+  .then(() => console.log(`📧 Fournisseur e-mail effectif : ${emailService.mode}`))
+  .catch((error) => console.warn('📧 Initialisation e-mail impossible :', error.message));
+
 app.listen(port, () => console.log(`Kids'Med API sur :${port}`));

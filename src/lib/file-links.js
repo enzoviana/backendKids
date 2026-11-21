@@ -1,19 +1,20 @@
 import crypto from "crypto";
 import path from "path";
+import { cfgSync } from "./runtime-config.js";
 
 /**
  * Signature des liens de fichiers.
  *
  * Le secret est lu à chaque appel (et non au chargement du module) : il peut ainsi
- * provenir d'une variable d'environnement mise à jour sans redémarrer le module.
- * On privilégie `FILE_SIGN_SECRET`, qui ne doit jamais changer ; `JWT_SECRET` n'est
- * qu'un repli de compatibilité car sa rotation invalide les anciennes URL.
+ * provenir de la console développeur sans redémarrage. On privilégie
+ * `FILE_SIGN_SECRET`, qui ne doit jamais changer ; `JWT_SECRET` n'est qu'un repli de
+ * compatibilité car sa rotation invalide les anciennes URL.
  */
 const fileSecret = () =>
-  process.env.FILE_SIGN_SECRET || process.env.JWT_SECRET || "kidsmed-secret-key-file-signing";
+  cfgSync("FILE_SIGN_SECRET", process.env.JWT_SECRET || "kidsmed-secret-key-file-signing");
 
 const publicBaseUrl = () =>
-  (process.env.PUBLIC_URL || process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
+  cfgSync("PUBLIC_URL", process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
 
 /**
  * Génère une URL d'accès pour un fichier téléversé.

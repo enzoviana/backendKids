@@ -19,21 +19,60 @@ const userSel = { select: { id: true, prenom: true, nom: true, role: true, email
 
 // ---------- Configuration fournisseurs (développeur) ----------
 import * as svc from '../lib/services.js';
-const mask = (v) => (v ? `${v.slice(0, 3)}••••${v.slice(-4)}` : "");
+
+/** Normalise et valide les valeurs sensibles avant enregistrement. */
+const EMAIL_PROVIDERS = new Set(["auto", "smtp", "sendgrid"]);
+const BOOLEAN_KEYS = new Set(["SMTP_SECURE", "SMTP_TLS_REJECT_UNAUTHORIZED", "EMAIL_MOCK_MODE"]);
+function normalizeConfigValue(key, value) {
+  // Valeur vide = retour à la variable d'environnement (ou à la valeur par défaut).
+  if (value === "") return "";
+  if (key === "EMAIL_PROVIDER") {
+    const v = value.toLowerCase();
+    if (!EMAIL_PROVIDERS.has(v)) fail(400, `EMAIL_PROVIDER invalide : « ${value} » (auto, smtp ou sendgrid attendu)`);
+    return v;
+  }
+  if (key === "SMTP_PORT") {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) fail(400, `SMTP_PORT invalide : « ${value} »`);
+    return String(port);
+  }
+  if (BOOLEAN_KEYS.has(key)) {
+    const v = value.toLowerCase();
+    if (v !== "true" && v !== "false") fail(400, `${key} doit valoir true ou false`);
+    return v;
+  }
+  return value;
+}
+
 router.get("/developer/config", auth(), devOnly, ah(async (_req, res) => {
   const out = {};
-  for (const k of svc.CONFIG_KEYS) { const v = await svc.cfg(k); out[k] = svc.SECRET_KEYS.includes(k) ? mask(v) : v ?? ""; }
+  for (const k of svc.CONFIG_KEYS) {
+    const v = await svc.cfg(k);
+    out[k] = svc.SECRET_KEYS.includes(k) ? svc.maskSecret(v) : v ?? "";
+  }
+  // Variables d'infrastructure, affichées en lecture seule dans la console.
+  out._lectureSeule = svc.READONLY_KEYS.map((key) => ({
+    key,
+    configure: !!process.env[key],
+  }));
+  // Origine de chaque valeur : base (console), environnement ou défaut.
+  out._sources = Object.fromEntries(svc.CONFIG_KEYS.map((key) => [key, svc.cfgSource(key)]));
   ok(res, out);
 }));
 router.put("/developer/config", auth(), devOnly, ah(async (req, res) => {
+  const enregistrees = [];
   for (const k of svc.CONFIG_KEYS) {
-    const v = req.body?.[k];
-    if (typeof v !== "string" || (svc.SECRET_KEYS.includes(k) && !v.trim())) continue;
-    await prisma.configEntry.upsert({ where: { key: k }, create: { key: k, value: v.trim() }, update: { value: v.trim() } });
+    const raw = req.body?.[k];
+    if (typeof raw !== "string") continue;
+    // Une clé secrète laissée vide est conservée (elle n'est jamais réaffichée en clair).
+    if (svc.SECRET_KEYS.includes(k) && !raw.trim()) continue;
+    const value = normalizeConfigValue(k, raw.trim());
+    await prisma.configEntry.upsert({ where: { key: k }, create: { key: k, value }, update: { value } });
+    enregistrees.push(k);
   }
-  svc.clearConfigCache();
+  await svc.clearConfigCache();
   await logSecu(req, "config_modifiee", { autorise: true });
-  ok(res, { enregistre: true });
+  ok(res, { enregistre: true, cles: enregistrees });
 }));
 router.get("/developer/config/email/diagnostic", auth(), devOnly, ah(async (_req, res) => {
   ok(res, await svc.emailService.diagnostic());
@@ -364,12 +403,18 @@ router.get("/developer/health-detailed", auth(), devOnly, ah(async (_req, res) =
   let db = "up";
   try { await prisma.$queryRaw`SELECT 1`; } catch { db = "down"; }
   const dbMs = Date.now() - t;
+  const [twilioSid, smtpUser, sendgridKey, stripeKey] = await Promise.all([
+    svc.cfg("TWILIO_ACCOUNT_SID", ""),
+    svc.cfg("SMTP_USER", ""),
+    svc.cfg("SENDGRID_API_KEY", ""),
+    svc.cfg("STRIPE_SECRET_KEY", ""),
+  ]);
   ok(res, { services: [
     { name: "PostgreSQL", status: db, latency: dbMs },
     { name: "API", status: "up", latency: 0 },
-    { name: "SMS (Twilio)", status: process.env.TWILIO_ACCOUNT_SID ? "up" : "degraded", latency: 0 },
-    { name: "E-mail (Resend)", status: process.env.RESEND_API_KEY ? "up" : "degraded", latency: 0 },
-    { name: "Stripe", status: process.env.STRIPE_SECRET_KEY ? "up" : "degraded", latency: 0 },
+    { name: "SMS (Twilio)", status: twilioSid ? "up" : "degraded", latency: 0 },
+    { name: "E-mail (SMTP/SendGrid)", status: smtpUser || sendgridKey ? "up" : "degraded", latency: 0 },
+    { name: "Stripe", status: stripeKey ? "up" : "degraded", latency: 0 },
     { name: "Stockage fichiers", status: fs.existsSync(UPLOAD_DIR) ? "up" : "down", latency: 0 },
   ] });
 }));

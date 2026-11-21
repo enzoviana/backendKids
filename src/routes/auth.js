@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, issueTokens, signAccess, publicUser, logSecu } from '../lib/core.js';
-import { sendSms, sendEmail } from '../lib/services.js';
+import { sendSms, sendEmail, cfg } from '../lib/services.js';
 import * as mfa from '../lib/mfa.js';
 import * as wa from '@simplewebauthn/server';
 
@@ -64,7 +64,7 @@ router.post("/register", ah(async (req, res) => {
     }
   }
 
-  await sendEmail(email, "Bienvenue sur Kids'Med", "auth-welcome", { prenom: prenom ?? "", lien_action: process.env.FRONTEND_URL ?? "" });
+  await sendEmail(email, "Bienvenue sur Kids'Med", "auth-welcome", { prenom: prenom ?? "", lien_action: await cfg("FRONTEND_URL", "") });
   ok(res, { ...publicUser(user), invitationsAcceptees }, 201);
 }));
 
@@ -122,7 +122,7 @@ router.post("/mfa/send-code", auth({ allowPreMfa: true }), ah(async (req, res) =
     await sendEmail(req.user.email, "Votre code de connexion Kids'Med", "auth-mfa-code",
       { prenom: req.user.prenom, code, expiration: "5 minutes" }, `Votre code de connexion Kids'Med : ${code} (valable 5 minutes).`);
   } else {
-    const { cfg } = await import('../lib/services.js'); const t = await cfg("MSG_MFA", "Kids'Med : votre code de connexion est {code} (valable 5 min)."); await sendSms(req.user.telephone, t.replace("{code}", code));
+    const t = await cfg("MSG_MFA", "Kids'Med : votre code de connexion est {code} (valable 5 min)."); await sendSms(req.user.telephone, t.replace("{code}", code));
   }
   ok(res, { envoye: true, canal, telephone: req.user.telephone ? req.user.telephone.slice(-2) : null });
 }));
@@ -135,7 +135,8 @@ router.post("/mfa/verify-code", auth({ allowPreMfa: true }), ah(async (req, res)
   if (req.body.methode === "totp") {
     if (!(await mfa.verifyUserTotp(u, code))) fail(401, "Code de l'application incorrect");
   } else {
-    const demo = process.env.MFA_DEMO_CODE && code === process.env.MFA_DEMO_CODE;
+    const demoCode = await cfg("MFA_DEMO_CODE", "");
+    const demo = demoCode && code === demoCode;
     if (!demo && (!u.mfaCode || !u.mfaExpiresAt || u.mfaExpiresAt < new Date() || u.mfaCode !== hash(code)))
       fail(401, "Code incorrect ou expiré");
     await prisma.user.update({ where: { id: u.id }, data: { mfaCode: null, mfaExpiresAt: null } });
@@ -269,7 +270,7 @@ router.post("/forgot-password", ah(async (req, res) => {
     const token = crypto.randomBytes(32).toString("hex");
     const code = String(crypto.randomInt(100000, 999999));
     await prisma.user.update({ where: { id: user.id }, data: { resetToken: hash(token) + ":" + hash(code), resetExpiresAt: new Date(Date.now() + 15 * 60e3) } });
-    const base = (process.env.FRONTEND_URL || "https://kidsmedia.vercel.app").replace(/\/$/, "");
+    const base = (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/$/, "");
     const lien = `${base}/reinitialiser?token=${encodeURIComponent(token)}`;
     await sendEmail(user.email, "Réinitialisation de votre mot de passe", "auth-forgot-password",
       { prenom: user.prenom, token, lien_action: lien, code, expiration: "15 minutes" }, `Lien : ${lien} — code : ${code}`);

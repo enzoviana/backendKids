@@ -3,12 +3,14 @@ import express from 'express';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, toDate } from '../lib/core.js';
 import { assertEtab } from '../lib/access.js';
 import Stripe from 'stripe';
+import { cfg } from '../lib/runtime-config.js';
 
 const router = express.Router();
 
-const stripe = () => {
-  if (!process.env.STRIPE_SECRET_KEY) return null;
-  return new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = async () => {
+  const key = await cfg('STRIPE_SECRET_KEY', '');
+  if (!key) return null;
+  return new Stripe(key);
 };
 const roleKey = (r) => (r === "superadmin" ? "admin" : r);
 
@@ -69,35 +71,38 @@ router.delete("/abonnements/:id", auth(), roles(), ah(async (req, res) => { awai
 
 // ---------- Stripe ----------
 router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
-  const s = stripe();
+  const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
   const tarif = req.body.tarifId ? await prisma.tarif.findUnique({ where: { id: req.body.tarifId } }) : await prisma.tarif.findFirst({ where: { nom: { equals: String(req.body.plan ?? ""), mode: "insensitive" } } });
   if (!tarif) fail(404, "Forfait introuvable");
   const annuel = req.body.periodicite === "annuel";
   const unit = Math.round((annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel) * 100);
+  const frontend = (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/+$/, "");
   const session = await s.checkout.sessions.create({
     mode: "subscription", customer_email: req.user.email,
     line_items: [tarif.stripePriceId ? { price: tarif.stripePriceId, quantity: 1 } : { quantity: 1, price_data: { currency: "eur", unit_amount: unit, recurring: { interval: annuel ? "year" : "month" }, product_data: { name: `Kids'Med — ${tarif.nom}` } } }],
     metadata: { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom },
-    success_url: `${process.env.FRONTEND_URL}/abonnement?paiement=ok`, cancel_url: `${process.env.FRONTEND_URL}/abonnement?paiement=annule`,
+    success_url: `${frontend}/abonnement?paiement=ok`, cancel_url: `${frontend}/abonnement?paiement=annule`,
   });
   ok(res, { url: session.url, sessionId: session.id });
 }));
 router.post("/abonnements/portail", auth(), ah(async (req, res) => {
-  const s = stripe();
+  const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
   const a = await prisma.abonnement.findFirst({ where: { userId: req.user.id, stripeCustomerId: { not: null } } });
   if (!a) fail(404, "Aucun abonnement Stripe pour ce compte");
-  const p = await s.billingPortal.sessions.create({ customer: a.stripeCustomerId, return_url: `${process.env.FRONTEND_URL}/abonnement` });
+  const frontend = (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/+$/, "");
+  const p = await s.billingPortal.sessions.create({ customer: a.stripeCustomerId, return_url: `${frontend}/abonnement` });
   ok(res, { url: p.url });
 }));
 
 /** Webhook Stripe (monté avant express.json dans server.js). */
 async function stripeWebhook(req, res) {
-  const s = stripe();
-  if (!s || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send("Stripe non configuré");
+  const s = await stripe();
+  const webhookSecret = await cfg("STRIPE_WEBHOOK_SECRET", "");
+  if (!s || !webhookSecret) return res.status(503).send("Stripe non configuré");
   let ev;
-  try { ev = s.webhooks.constructEvent(req.body, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET); }
+  try { ev = s.webhooks.constructEvent(req.body, req.headers["stripe-signature"], webhookSecret); }
   catch (e) { return res.status(400).send(`Signature invalide : ${e.message}`); }
   if (ev.type === "checkout.session.completed") {
     const o = ev.data.object, m = o.metadata ?? {};

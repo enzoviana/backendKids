@@ -43,3 +43,58 @@ auth · users (profil, annuaires médecins/RSAI, parents) · etablissements (sé
 
 ## E-mails
 Placez les fichiers HTML téléchargés depuis Espace Dev > Templates e-mails dans `email-templates/` (même nom que l'identifiant, ex. `auth-forgot-password.html`).
+
+### Fournisseur : votre SMTP ou SendGrid
+
+`EMAIL_PROVIDER` accepte `auto` (défaut), `smtp` ou `sendgrid` :
+
+| Valeur | Comportement |
+| --- | --- |
+| `auto` | utilise votre serveur SMTP dès que `SMTP_HOST`, `SMTP_USER` et `SMTP_PASSWORD` sont renseignés ; sinon SendGrid ; sinon simulation |
+| `smtp` | uniquement votre serveur SMTP (aucune dépendance à un fournisseur d'API) |
+| `sendgrid` | uniquement l'API SendGrid |
+
+Aucune modification de code n'est nécessaire : `nodemailer` envoie via `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, avec `EMAIL_FROM` / `SMTP_FROM_NAME` comme expéditeur.
+Les valeurs peuvent aussi être saisies dans Console développeur > Clés API (stockées en base, prioritaires sur l'environnement).
+
+Bonnes pratiques si vous hébergez votre propre serveur (Postfix, Mailcow, Docker Mailserver) :
+
+- autoriser le port 25 sortant depuis le serveur et configurer un **PTR/rDNS** cohérent ;
+- publier **SPF**, **DKIM** et **DMARC** sur le domaine d'envoi, sinon les messages partent en spam ;
+- garder le port 587/STARTTLS ou 465/SSL pour la soumission authentifiée utilisée par l'API ;
+- sur Render, les ports 25/465/587 sont bloqués pour le plan gratuit : utiliser le plan Starter
+  (c'est le cas de `render.yaml`) ou un relais SMTP qui écoute sur le port 2525.
+
+Le diagnostic `GET /api/developer/config/email/diagnostic` indique le fournisseur réellement
+retenu, l'adresse d'envoi et si le port SMTP est joignable depuis l'instance.
+
+### Console développeur : toutes les variables à chaud
+
+`GET /api/developer/config` et `PUT /api/developer/config` (rôle développeur) exposent et
+enregistrent l'ensemble des variables d'exécution : e-mail (SMTP/SendGrid), SMS, Stripe,
+liens des e-mails, nom et support de l'application, WebAuthn, secret des liens de fichiers,
+CORS, géocodage et messages système. Les valeurs sont stockées dans `ConfigEntry`, prises en
+priorité sur l'environnement, et rechargées immédiatement : aucun redémarrage n'est nécessaire.
+
+- Les clés secrètes sont masquées en lecture et un champ laissé vide conserve la valeur.
+- Une valeur vide sur une clé non secrète revient à la variable d'environnement.
+- `EMAIL_PROVIDER`, `SMTP_PORT` et les booléens sont validés avant enregistrement.
+- Les variables d'infrastructure (`DATABASE_URL`, `JWT_SECRET`, `PORT`, `UPLOAD_DIR`,
+  `NODE_ENV`, `SEED_*`) restent en lecture seule : elles sont lues au démarrage et changer
+  `JWT_SECRET` invaliderait les sessions et les secrets TOTP.
+
+### « Envoi via SendGrid » alors que SMTP est configuré
+
+L'ordre de priorité est : **valeur enregistrée en console** > **variable d'environnement** >
+**valeur par défaut**. Une ancienne valeur `EMAIL_PROVIDER=sendgrid` (console ou `.env`)
+force donc SendGrid même si le SMTP est complet.
+
+1. Ouvrir Console développeur > Clés API & messages > E-mails ;
+2. lire la mention à droite du libellé « Fournisseur » : `base` = valeur enregistrée en console,
+   `environnement` = variable du serveur ;
+3. choisir `smtp` (ou `auto`) puis Enregistrer ; « valeur du serveur (efface) » supprime la
+   valeur en base et réutilise l'environnement ;
+4. vérifier le diagnostic : il affiche désormais la raison exacte du fournisseur retenu,
+   l'origine de chaque variable et la complétude de la configuration SMTP
+   (`smtpPret`, `sendgridPret`).
