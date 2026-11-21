@@ -52,7 +52,14 @@ router.post("/enfants", auth(), roles("creche", "parent"), ah(async (req, res) =
   required(req.body, ["prenom", "nom"]);
   const d = fields(req.body);
   if (req.user.role === "creche") d.etablissementId = req.user.etablissementId;
-  const e = await prisma.enfant.create({ data: { ...d, codeLiaison: genCode(d.prenom) } });
+  // Un administrateur / développeur gère plusieurs crèches : il doit indiquer
+  // explicitement le rattachement, sinon le dossier serait orphelin.
+  if (isAdmin(req.user)) {
+    if (!d.etablissementId) fail(400, "Sélectionnez l'établissement de l'enfant");
+    const etab = await prisma.etablissement.findUnique({ where: { id: d.etablissementId }, select: { id: true } });
+    if (!etab) fail(404, "Établissement introuvable");
+  }
+  const e = await prisma.enfant.create({ data: { ...d, codeLiaison: genCode(d.prenom), urgenceToken: crypto.randomBytes(16).toString("hex") } });
   if (req.user.role === "parent") await prisma.liaison.create({ data: { enfantId: e.id, userId: req.user.id, role: "parent", source: "creation" } });
   ok(res, e, 201);
 }));
@@ -63,6 +70,55 @@ router.post("/enfants/lier-code", auth(), ah(async (req, res) => {
   await prisma.liaison.upsert({ where: { enfantId_userId: { enfantId: e.id, userId: req.user.id } }, update: {}, create: { enfantId: e.id, userId: req.user.id, role: req.user.role, source: "code" } });
   ok(res, { id: e.id, prenom: e.prenom, nom: e.nom });
 }));
+// ---------- QR code d'urgence (accès public limité) ----------
+// Le QR affiché par le parent encode ce code. Il doit fonctionner sans session :
+// un secouriste qui scanne le QR arrive directement sur les données vitales.
+const urgenceHits = new Map();
+function urgenceAutorisee(req) {
+  const ip = String(req.headers["x-forwarded-for"] ?? req.ip ?? "").split(",")[0].trim() || "inconnu";
+  const now = Date.now();
+  const e = urgenceHits.get(ip);
+  if (!e || e.reset < now) {
+    if (urgenceHits.size > 5000) urgenceHits.clear();
+    urgenceHits.set(ip, { n: 1, reset: now + 10 * 60e3 });
+    return true;
+  }
+  e.n += 1;
+  return e.n <= 40;
+}
+router.get("/urgence/:code", ah(async (req, res) => {
+  if (!urgenceAutorisee(req)) fail(429, "Trop de tentatives, réessayez dans quelques minutes");
+  const code = String(req.params.code ?? "").trim();
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(code)) fail(400, "Code d'urgence invalide");
+  // Le jeton d'urgence (32 caractères aléatoires) est prioritaire. Le code de
+  // liaison reste accepté pour les QR déjà imprimés avec l'ancien format.
+  const e = await prisma.enfant.findFirst({
+    where: { OR: [{ urgenceToken: { equals: code, mode: "insensitive" } }, { codeLiaison: code.toUpperCase() }] },
+    include: {
+      etablissement: { select: { nom: true, telephone: true, adresse: true, codePostal: true, ville: true } },
+      liaisons: { include: { user: { select: { prenom: true, nom: true, role: true, telephone: true } } } },
+      medicaments: { where: { statut: "en_cours" }, select: { nom: true, posologie: true, horaires: true, dateFin: true }, orderBy: { createdAt: "desc" }, take: 20 },
+    },
+  });
+  if (!e) fail(404, "Dossier introuvable ou code d'urgence expiré");
+  res.setHeader("Cache-Control", "no-store");
+  await logSecu(req, "consultation_urgence", { enfantId: e.id, motif: "qr_urgence" });
+  const proches = e.liaisons
+    .filter((l) => ["parent", "medecin"].includes(l.role))
+    .map((l) => ({ prenom: l.user.prenom, nom: l.user.nom, role: l.role, telephone: l.user.telephone }));
+  ok(res, {
+    enfant: {
+      id: e.id, prenom: e.prenom, nom: e.nom, dateNaissance: e.dateNaissance, sexe: e.sexe,
+      groupeSanguin: e.groupeSanguin, allergies: e.allergies, antecedents: e.antecedents,
+      pai: e.pai, photoUrl: e.photoUrl,
+    },
+    etablissement: e.etablissement,
+    proches,
+    traitements: e.medicaments,
+    misAJour: e.updatedAt,
+  });
+}));
+
 router.get("/enfants/:enfantId", auth(), ah(async (req, res) => {
   await assertEnfant(req.user, req.params.enfantId);
   await logSecu(req, "consultation_dossier", { enfantId: req.params.enfantId });
@@ -96,8 +152,8 @@ router.get("/enfants/:enfantId/qrcode", auth(), ah(async (req, res) => {
 }));
 router.post("/enfants/:enfantId/regenerer-code", auth(), roles("creche"), ah(async (req, res) => {
   const e = await assertEnfant(req.user, req.params.enfantId);
-  const u = await prisma.enfant.update({ where: { id: e.id }, data: { codeLiaison: genCode(e.prenom) } });
-  ok(res, { code: u.codeLiaison, qrCodeUrl: await QRCode.toDataURL(u.codeLiaison) });
+  const u = await prisma.enfant.update({ where: { id: e.id }, data: { codeLiaison: genCode(e.prenom), urgenceToken: crypto.randomBytes(16).toString("hex") } });
+  ok(res, { code: u.codeLiaison, urgenceToken: u.urgenceToken, qrCodeUrl: await QRCode.toDataURL(u.codeLiaison) });
 }));
 
 // ---------- Vaccins ----------
@@ -220,11 +276,14 @@ router.get("/liaisons", auth(), roles(), ah(async (req, res) => {
   const { enfantId, userId, role } = req.query;
   ok(res, await prisma.liaison.findMany({ where: { enfantId: enfantId || undefined, userId: userId || undefined, role: role || undefined }, include: { enfant: { select: { id: true, prenom: true, nom: true } }, user: { select: { id: true, prenom: true, nom: true, email: true } } }, orderBy: { createdAt: "desc" } }));
 }));
-router.post("/liaisons", auth(), roles("creche"), ah(async (req, res) => {
+router.post("/liaisons", auth(), roles("creche", "parent"), ah(async (req, res) => {
   const enfantId = req.body.enfantId ?? req.body.enfant;
   const role = String(req.body.role ?? "").trim();
   required({ enfantId, role }, ["enfantId", "role"]);
+  // assertEnfant garantit que l'auteur (crèche, parent lié, admin) a bien accès
+  // au dossier avant de partager ce dernier avec une autre personne.
   const enfant = await assertEnfant(req.user, enfantId);
+  const source = isAdmin(req.user) ? "admin" : req.user.role;
   const email = String(req.body.email ?? "").trim().toLowerCase();
   const user = req.body.userId
     ? await prisma.user.findUnique({ where: { id: req.body.userId } })
@@ -250,12 +309,11 @@ router.post("/liaisons", auth(), roles("creche"), ah(async (req, res) => {
     const link = inviteLink(email, token);
     let emailSent = false;
     try {
-      await sendEmail(
+      emailSent = (await sendEmail(
         email,
         `Invitation à rejoindre le dossier de ${enfant.prenom}`,
         invitationHtml({ enfantNom: fullName(enfant), etablissementNom: etablissement?.nom, role, link }),
-      );
-      emailSent = true;
+      )) !== false;
     } catch (err) {
       console.error("Invitation liaison : envoi e-mail impossible", err?.message ?? err);
     }
@@ -265,7 +323,7 @@ router.post("/liaisons", auth(), roles("creche"), ah(async (req, res) => {
   const lien = await prisma.liaison.upsert({
     where: { enfantId_userId: { enfantId, userId: user.id } },
     update: { role },
-    create: { enfantId, userId: user.id, role, source: isAdmin(req.user) ? "admin" : "creche" },
+    create: { enfantId, userId: user.id, role, source },
   });
   await prisma.liaisonInvitation.updateMany({
     where: { enfantId, email: { equals: user.email, mode: "insensitive" }, role, statut: "en_attente" },
@@ -273,14 +331,14 @@ router.post("/liaisons", auth(), roles("creche"), ah(async (req, res) => {
   });
   ok(res, lien, 201);
 }));
-router.delete("/liaisons/invitations/:invitationId", auth(), roles("creche"), ah(async (req, res) => {
+router.delete("/liaisons/invitations/:invitationId", auth(), roles("creche", "parent"), ah(async (req, res) => {
   const inv = await prisma.liaisonInvitation.findUnique({ where: { id: req.params.invitationId } });
   if (!inv) fail(404, "Invitation introuvable");
   await assertEnfant(req.user, inv.enfantId);
   await prisma.liaisonInvitation.delete({ where: { id: inv.id } });
   ok(res, { supprime: true });
 }));
-router.delete("/liaisons/:liaisonId", auth(), roles("creche"), ah(async (req, res) => {
+router.delete("/liaisons/:liaisonId", auth(), roles("creche", "parent"), ah(async (req, res) => {
   const l = await prisma.liaison.findUnique({ where: { id: req.params.liaisonId } });
   if (!l) fail(404, "Liaison introuvable");
   await assertEnfant(req.user, l.enfantId);

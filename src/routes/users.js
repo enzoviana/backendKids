@@ -50,14 +50,13 @@ router.post("/users", auth(), roles(), ah(async (req, res) => {
   let emailErreur = null;
   let emailSimule = false;
   try {
-    await sendEmail(u.email, "Votre compte Kids'Med IA a été créé", "auth-account-created", {
+    emailEnvoye = (await sendEmail(u.email, "Votre compte Kids'Med IA a été créé", "auth-account-created", {
       prenom: u.prenom,
       nom: u.nom,
       email: u.email,
       role: u.role,
       temporaryPassword: pwd,
-    });
-    emailEnvoye = true;
+    })) !== false;
     emailSimule = emailService.isMock();
   } catch (err) {
     emailErreur = err?.message ?? "Envoi de l'e-mail impossible";
@@ -135,15 +134,31 @@ router.post("/users/:userId/reset-password", auth(), roles(), ah(async (req, res
   const t = await guardTarget(req);
   const pwd = crypto.randomBytes(6).toString("base64url");
   await prisma.user.update({ where: { id: t.id }, data: { motDePasseHash: await bcrypt.hash(pwd, 10) } });
-  const { sendEmail } = await import('../lib/services.js');
-  await sendEmail(t.email, "Votre nouveau mot de passe Kids'Med", "mot-de-passe-oublie", {
-    prenom: t.prenom,
-    nom: t.nom,
-    temporaryPassword: pwd
-  }).catch((err) => {
-    console.error('Erreur lors de l\'envoi de l\'email de réinitialisation:', err);
+  const { sendEmail, emailService } = await import('../lib/services.js');
+  let emailEnvoye = false;
+  let emailErreur = null;
+  try {
+    emailEnvoye = (await sendEmail(t.email, "Votre nouveau mot de passe Kids'Med", "mot-de-passe-oublie", {
+      prenom: t.prenom,
+      nom: t.nom,
+      temporaryPassword: pwd,
+    })) !== false;
+  } catch (err) {
+    emailErreur = err?.message ?? "Envoi impossible";
+    console.error("Erreur lors de l'envoi de l'email de réinitialisation:", err);
+  }
+  const emailSimule = emailService.isMock();
+  // Ne jamais annoncer « envoyé » si l'e-mail ne l'est pas : l'administrateur doit
+  // pouvoir transmettre le mot de passe temporaire lui-même.
+  // Le mot de passe est toujours renvoyé à l'administrateur qui a déclenché la
+  // réinitialisation : certains serveurs destinataires bloquent nos e-mails (DNSBL),
+  // et sans cette valeur le compte deviendrait inaccessible.
+  ok(res, {
+    envoye: emailEnvoye && !emailSimule,
+    emailSimule,
+    emailErreur,
+    motDePasseTemporaire: pwd,
   });
-  ok(res, { envoye: true });
 }));
 router.patch("/users/:userId/status", auth(), roles(), ah(async (req, res) => {
   await guardTarget(req);

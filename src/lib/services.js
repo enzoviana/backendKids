@@ -1,4 +1,7 @@
 import { createSMTPTransporter, emailConfig, verifySendGridConfig } from '../config/email.js';
+import { signFile, verifyFile } from './file-links.js';
+
+export { signFile, verifyFile };
 import { renderTemplate, EmailTemplate } from '../utils/emailTemplates.js';
 import sgMail from '@sendgrid/mail';
 import twilio from 'twilio';
@@ -1091,37 +1094,6 @@ function recordCall(req, res, duration, now, fullPath) {
 }
 
 /**
- * Génère une URL d'accès pour un fichier téléversé
- * 
- * @param {string} filename - Nom du fichier enregistré
- * @param {number} [expiresInSec=31536000] - Durée de validité en secondes (par défaut 1 ans)
- * @returns {string} URL du fichier
- */
-export function signFile(filename, expiresInSec = 31536000) {
-  if (!filename) return null;
-
-  // Si c'est déjà une URL complète (ex: Cloudinary, S3, external), la retourner telle quelle
-  if (filename.startsWith('http://') || filename.startsWith('https://')) {
-    return filename;
-  }
-
-  // Base URL publique du serveur (Render, local, etc.)
-  const baseUrl = (process.env.PUBLIC_URL || process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
-
-  // Déjà une URL signée relative : la compléter avec la base si besoin.
-  if (filename.includes('/api/fichiers/')) return filename.startsWith('http') ? filename : `${baseUrl}${filename}`;
-
-  // Nettoyer le nom de fichier au cas où il contient un chemin relatif/query.
-  const cleanFilename = filename.split('/').pop().split('?')[0];
-
-  const exp = Math.floor(Date.now() / 1000) + Math.max(60, Number(expiresInSec) || 31536000);
-  const secret = process.env.FILE_SIGN_SECRET || process.env.JWT_SECRET || 'kidsmed-secret-key-file-signing';
-  const sig = crypto.createHmac('sha256', secret).update(`${cleanFilename}:${exp}`).digest('hex');
-
-  return `${baseUrl}/api/fichiers/${encodeURIComponent(cleanFilename)}?exp=${exp}&sig=${sig}`;
-}
-
-/**
  * Clés de configuration disponibles
  */
 export const CONFIG_KEYS = [
@@ -1288,41 +1260,4 @@ export function snapshot() {
       activeEndpoints: metrics?.perEndpoint?.size || 0,
     },
   };
-}
-const FILE_SECRET = process.env.FILE_SIGN_SECRET || process.env.JWT_SECRET || 'kidsmed-secret-key-file-signing';
-/**
- * Vérifie l'authenticité et la validité temporelle d'un fichier demandé via URL signée
- * 
- * @param {string} name - Nom du fichier
- * @param {string|number} exp - Timestamp d'expiration (en secondes)
- * @param {string} sig - Signature HMAC envoyée dans la requête
- * @returns {boolean} true si le lien est valide et non expiré
- */
-export function verifyFile(name, exp, sig) {
-  // 1. Vérifier la présence des paramètres requis
-  if (!name || !exp || !sig) {
-    return false;
-  }
-
-  // 2. Vérifier l'expiration
-  const now = Math.floor(Date.now() / 1000);
-  if (Number(exp) < now) {
-    return false;
-  }
-
-  // 3. Recalculer la signature HMAC
-  const expectedSig = crypto
-    .createHmac('sha256', FILE_SECRET)
-    .update(`${name}:${exp}`)
-    .digest('hex');
-
-  // 4. Comparaison sécurisée contre les attaques par analyse temporelle (timing attacks)
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(sig, 'hex'),
-      Buffer.from(expectedSig, 'hex')
-    );
-  } catch (_e) {
-    return false;
-  }
 }

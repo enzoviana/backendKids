@@ -201,19 +201,146 @@ router.get("/rgpd/export", auth(), roles(), ah(async (req, res) => {
 }));
 
 // ---------- Tickets ----------
+const TICKET_STATUTS = ["ouvert", "en_cours", "resolu", "ferme"];
+const TICKET_PRIORITES = ["basse", "normale", "haute", "urgente"];
+
+/** Numéro suivant : on se base sur le plus grand numéro existant, jamais sur count(). */
+async function prochainNumeroTicket() {
+  const rows = await prisma.ticket.findMany({ select: { numero: true } });
+  const max = rows.reduce((m, r) => Math.max(m, parseInt(String(r.numero).replace(/\D/g, ""), 10) || 0), 0);
+  return `TCK-${String(max + 1).padStart(4, "0")}`;
+}
+
+/** Crée le ticket en réessayant si deux créations simultanées visent le même numéro. */
+async function creerTicket(data) {
+  for (let i = 0; i < 5; i += 1) {
+    try {
+      return await prisma.ticket.create({ data: { ...data, numero: await prochainNumeroTicket() } });
+    } catch (e) {
+      if (e?.code === "P2002") continue;
+      throw e;
+    }
+  }
+  fail(503, "Impossible d'attribuer un numéro de ticket, réessayez dans un instant");
+}
+
+/** Ajoute les informations d'auteur et le nombre de réponses publiques. */
+async function enrichirTickets(tickets) {
+  const ids = [...new Set(tickets.map((t) => t.auteurId).filter(Boolean))];
+  const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: userSel.select }) : [];
+  return tickets.map((t) => {
+    const messages = t.messages ?? [];
+    return {
+      ...t,
+      auteur: users.find((u) => u.id === t.auteurId) ?? null,
+      reponses: messages.filter((m) => !m.interne).length,
+      dernierMessage: messages.length ? messages[messages.length - 1].createdAt : null,
+    };
+  });
+}
+
+const messagesPubliques = { messages: { where: { interne: false }, orderBy: { createdAt: "asc" } } };
+
+/** Un ticket est visible par son auteur et par l'équipe technique. */
+async function ticketAccessible(req, id) {
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (!t) fail(404, "Ticket introuvable");
+  if (!isDev(req.user) && t.auteurId !== req.user.id) fail(403, "Accès refusé à ce ticket");
+  return t;
+}
+
 router.post("/developer/support/tickets", auth(), ah(async (req, res) => {
   required(req.body, ["titre", "description"]);
-  const n = (await prisma.ticket.count()) + 1;
-  const t = await prisma.ticket.create({ data: { numero: `TCK-${String(n).padStart(4, "0")}`, auteurId: req.user.id, titre: req.body.titre, description: req.body.description, priorite: req.body.priorite ?? "normale", categorie: req.body.categorie ?? "question", page: req.body.page, device: req.body.device } });
+  const statut = TICKET_STATUTS.includes(req.body.statut) ? req.body.statut : "ouvert";
+  const priorite = TICKET_PRIORITES.includes(req.body.priorite) ? req.body.priorite : "normale";
+  const t = await creerTicket({
+    auteurId: req.user.id,
+    titre: String(req.body.titre).slice(0, 200),
+    description: String(req.body.description).slice(0, 5000),
+    priorite,
+    categorie: req.body.categorie ?? "question",
+    statut,
+    page: req.body.page ?? null,
+    device: req.body.device ?? null,
+  });
   const devs = await prisma.user.findMany({ where: { role: { in: ["developpeur", "superadmin"] } }, select: { id: true } });
-  await notify(devs.map((d) => d.id), `Ticket ${t.numero}`, t.titre, "/dev/support");
+  await notify(devs.map((d) => d.id), `Nouveau ticket ${t.numero}`, t.titre, "/dev/support", "alerte");
   ok(res, t, 201);
 }));
-router.get("/developer/support/tickets/mine", auth(), ah(async (req, res) => ok(res, await prisma.ticket.findMany({ where: { auteurId: req.user.id }, orderBy: { createdAt: "desc" } }))));
-router.get("/developer/support/tickets", auth(), devOnly, ah(async (_req, res) => ok(res, await prisma.ticket.findMany({ orderBy: { createdAt: "desc" } }))));
+
+router.get("/developer/support/tickets/mine", auth(), ah(async (req, res) => {
+  const liste = await prisma.ticket.findMany({ where: { auteurId: req.user.id }, include: messagesPubliques, orderBy: [{ createdAt: "desc" }] });
+  ok(res, await enrichirTickets(liste));
+}));
+
+router.get("/developer/support/tickets", auth(), devOnly, ah(async (_req, res) => {
+  const liste = await prisma.ticket.findMany({ include: messagesPubliques, orderBy: [{ createdAt: "desc" }] });
+  ok(res, await enrichirTickets(liste));
+}));
+
+router.get("/developer/support/tickets/:id", auth(), ah(async (req, res) => {
+  const base = await ticketAccessible(req, req.params.id);
+  const t = await prisma.ticket.findUnique({
+    where: { id: base.id },
+    include: isDev(req.user)
+      ? { messages: { orderBy: { createdAt: "asc" } } }
+      : messagesPubliques,
+  });
+  const [enrichi] = await enrichirTickets([t]);
+  ok(res, enrichi);
+}));
+
+router.post("/developer/support/tickets/:id/messages", auth(), ah(async (req, res) => {
+  const t = await ticketAccessible(req, req.params.id);
+  const message = String(req.body.message ?? "").trim();
+  if (!message) fail(400, "Le message est vide");
+  if (message.length > 5000) fail(400, "Message trop long (5000 caractères maximum)");
+  const interne = !!req.body.interne && isDev(req.user);
+  const auteur = await prisma.user.findUnique({ where: { id: req.user.id }, select: userSel.select });
+
+  const created = await prisma.ticketMessage.create({
+    data: {
+      ticketId: t.id,
+      auteurId: req.user.id,
+      auteurNom: auteur ? fullName(auteur) : "Utilisateur",
+      auteurRole: auteur?.role ?? req.user.role,
+      message,
+      interne,
+    },
+  });
+
+  // Les statuts suivent la conversation, sans intervention manuelle.
+  let statut = t.statut;
+  if (!interne) {
+    if (isDev(req.user) && ["ouvert", "ferme"].includes(t.statut)) statut = "en_cours";
+    if (!isDev(req.user) && ["resolu", "ferme"].includes(t.statut)) statut = "ouvert";
+  }
+  const ticket = statut !== t.statut ? await prisma.ticket.update({ where: { id: t.id }, data: { statut } }) : t;
+
+  if (!interne) {
+    if (isDev(req.user)) {
+      if (t.auteurId) await notify([t.auteurId], `Réponse au ticket ${t.numero}`, message.slice(0, 160), "/profil", "info");
+    } else {
+      const devs = await prisma.user.findMany({ where: { role: { in: ["developpeur", "superadmin"] } }, select: { id: true } });
+      await notify(devs.map((d) => d.id), `Ticket ${t.numero} — nouvelle réponse`, message.slice(0, 160), "/dev/support", "info");
+    }
+  }
+  ok(res, { message: created, ticket }, 201);
+}));
+
 router.patch("/developer/support/tickets/:id", auth(), devOnly, ah(async (req, res) => {
-  const t = await prisma.ticket.update({ where: { id: req.params.id }, data: { statut: req.body.statut, priorite: req.body.priorite } });
-  if (t.auteurId) await notify([t.auteurId], `Ticket ${t.numero} : ${t.statut}`, t.titre, "/profil");
+  const data = {};
+  if (req.body.statut !== undefined) {
+    if (!TICKET_STATUTS.includes(req.body.statut)) fail(400, "Statut invalide");
+    data.statut = req.body.statut;
+  }
+  if (req.body.priorite !== undefined) {
+    if (!TICKET_PRIORITES.includes(req.body.priorite)) fail(400, "Priorité invalide");
+    data.priorite = req.body.priorite;
+  }
+  if (!Object.keys(data).length) fail(400, "Aucune modification valide");
+  const t = await prisma.ticket.update({ where: { id: req.params.id }, data });
+  if (t.auteurId && data.statut) await notify([t.auteurId], `Ticket ${t.numero} : ${t.statut.replace("_", " ")}`, t.titre, "/profil", "info");
   ok(res, t);
 }));
 

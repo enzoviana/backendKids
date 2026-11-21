@@ -1,17 +1,23 @@
 import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { refreshFileUrl } from "./file-links.js";
 
 const prisma = new PrismaClient();
 
-/** Ajoute `_id` (attendu par le frontend) partout où il y a un `id`. */
+/**
+ * Ajoute `_id` (attendu par le frontend) partout où il y a un `id`.
+ * Re-signe au passage les liens de fichiers : les URL signées stockées en base
+ * finissent par devenir invalides (rotation du secret, expiration), donc on ne
+ * fait jamais confiance à la signature persistée.
+ */
 function withMongoIds(v) {
   if (Array.isArray(v)) return v.map(withMongoIds);
   if (v instanceof Date || v === null || typeof v !== "object") return v;
   const o = {};
   for (const [k, val] of Object.entries(v)) {
     if (k === "motDePasseHash" || k === "mfaCode" || k === "resetToken") continue;
-    o[k] = withMongoIds(val);
+    o[k] = typeof val === "string" && val.includes("/api/fichiers/") ? refreshFileUrl(val) : withMongoIds(val);
   }
   if (o.id && !o._id) o._id = o.id;
   return o;

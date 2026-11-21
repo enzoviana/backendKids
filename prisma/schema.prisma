@@ -124,6 +124,8 @@ model Enfant {
   sectionId       String?
   section         Section? @relation(fields: [sectionId], references: [id])
   codeLiaison     String   @unique
+  /// Jeton du QR d'urgence : donne accès à la fiche vitale publique, jamais au dossier complet.
+  urgenceToken    String?  @unique
   groupeSanguin   String?
   poids           Float?
   taille          Float?
@@ -517,6 +519,22 @@ model Ticket {
   page        String?
   device      String?
   createdAt   DateTime @default(now())
+  messages    TicketMessage[]
+}
+
+/// Réponse d'un ticket, échangée entre l'auteur et l'équipe technique.
+model TicketMessage {
+  id         String   @id @default(uuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  auteurId   String?
+  auteurNom  String?
+  auteurRole String?
+  message    String
+  interne    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 model ErreurServeur {
