@@ -216,7 +216,20 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
   if (abonnement?.stripeSubscriptionId) {
     try { actuel = await s.subscriptions.retrieve(abonnement.stripeSubscriptionId); } catch { /* recréation */ }
   }
-  const existantUtilisable = !!actuel && ["active", "trialing", "past_due", "incomplete"].includes(actuel.status);
+  let existantUtilisable = !!actuel && ["active", "trialing", "past_due", "incomplete"].includes(actuel.status);
+
+  // Paiement abandonné : un abonnement Stripe « incomplete » bloquerait le choix
+  // d'une autre formule. On l'annule avant de repartir sur une base saine.
+  if (actuel && actuel.status === "incomplete") {
+    try { await s.subscriptions.cancel(actuel.id); }
+    catch (e) { console.warn("Stripe : annulation de l'abonnement incomplet impossible —", e?.message ?? e); }
+    abonnement = await prisma.abonnement.update({
+      where: { id: abonnement.id },
+      data: { stripeSubscriptionId: null, statut: "en_attente" },
+    });
+    actuel = null;
+    existantUtilisable = false;
+  }
 
   // Essai gratuit : on collecte d'abord une carte (SetupIntent). L'abonnement est
   // créé après confirmation, pour ne jamais démarrer un essai sans moyen de paiement.
@@ -265,13 +278,18 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
   if (existantUtilisable) {
     miseANiveau = ["active", "trialing"].includes(actuel.status);
     const item = actuel.items?.data?.[0];
-    sub = await s.subscriptions.update(actuel.id, {
-      items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
-      proration_behavior: "always_invoice",
-      payment_behavior: "default_incomplete",
-      expand: ["latest_invoice.payment_intent"],
-      metadata: meta,
-    });
+    try {
+      sub = await s.subscriptions.update(actuel.id, {
+        items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
+        proration_behavior: "always_invoice",
+        payment_behavior: "default_incomplete",
+        expand: ["latest_invoice.payment_intent"],
+        metadata: meta,
+      });
+    } catch (e) {
+      console.warn("Stripe : changement de formule impossible —", e?.message ?? e);
+      fail(409, "Impossible de changer de formule pour le moment. Réessayez dans un instant.");
+    }
   }
 
   if (!sub) {
@@ -399,6 +417,38 @@ router.post("/abonnements/paiement/finaliser", auth(), ah(async (req, res) => {
     },
   });
   ok(res, { statut: maj.statut, plan: maj.plan, dateFin: maj.dateFin });
+}));
+
+/** Abandonne un paiement en attente et libère le choix de formule. */
+router.post("/abonnements/paiement/abandonner", auth(), ah(async (req, res) => {
+  required(req.body, ["abonnementId"]);
+  const abo = await prisma.abonnement.findUnique({ where: { id: String(req.body.abonnementId) } });
+  if (!abo) fail(404, "Abonnement introuvable");
+  const possede = abo.userId === req.user.id || (!!abo.etablissementId && abo.etablissementId === req.user.etablissementId);
+  if (!possede) fail(403, "Abonnement non accessible");
+  if (["actif", "essai"].includes(abo.statut)) {
+    fail(409, "Cet abonnement est actif : utilisez le portail client pour le gérer.");
+  }
+
+  if (abo.stripeSubscriptionId) {
+    const s = await stripe();
+    if (s) {
+      let sub = null;
+      try { sub = await s.subscriptions.retrieve(abo.stripeSubscriptionId); } catch { /* déjà supprimé */ }
+      if (sub) {
+        if (["active", "trialing"].includes(sub.status)) {
+          fail(409, "Cet abonnement est actif : utilisez le portail client pour le gérer.");
+        }
+        if (["incomplete", "past_due", "unpaid"].includes(sub.status)) {
+          try { await s.subscriptions.cancel(sub.id); }
+          catch (e) { console.warn("Stripe : annulation impossible —", e?.message ?? e); }
+        }
+      }
+    }
+  }
+
+  await prisma.abonnement.delete({ where: { id: abo.id } });
+  ok(res, { annule: true });
 }));
 
 router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
