@@ -101,19 +101,27 @@ force donc SendGrid même si le SMTP est complet.
 
 ## Paiement (Stripe)
 
-Le paiement utilise le **Checkout embarqué** : le formulaire Stripe s'affiche dans la page
-« Mon abonnement » de l'application, sans redirection vers un domaine d'hébergeur.
+Le paiement se fait sur une **page dédiée de l'application** (`/abonnement/paiement`) avec le
+**Stripe Payment Element** : formulaire natif intégré, sans redirection ni iframe de page, avec
+un design Kids'Med (récapitulatif de la formule, garanties, confirmation).
 
-- `STRIPE_PUBLISHABLE_KEY` (`pk_live_…` / `pk_test_…`) active le formulaire embarqué.
-  Sans elle, l'API renvoie automatiquement l'URL de la page Stripe hébergée.
-- `STRIPE_SECRET_KEY` reste nécessaire côté serveur pour créer la session.
+- `STRIPE_PUBLISHABLE_KEY` (`pk_live_…` / `pk_test_…`) est indispensable à cette page.
+- `STRIPE_SECRET_KEY` crée le client, le prix et l'abonnement (`default_incomplete`).
 - `STRIPE_WEBHOOK_SECRET` valide la signature du webhook `POST /api/webhooks/stripe`.
 
-Les URLs de retour (`return_url`, `success_url`, `cancel_url`, portail client) sont calculées
-depuis l'en-tête `Origin` de l'appelant lorsqu'il est autorisé par `CORS_ORIGINS`, avec repli
-sur `FRONTEND_URL`. Aucune URL d'hébergeur n'est codée en dur : le retour se fait sur le
-domaine réellement utilisé (Vercel, domaine personnalisé…).
+Parcours :
 
-Webhook Stripe (Dashboard → Développeurs → Webhooks) : écouter uniquement
-`checkout.session.completed`, `customer.subscription.deleted` et `invoice.payment_failed`.
+1. `POST /api/abonnements/paiement/intent` crée ou met à niveau l'abonnement et renvoie le
+   `clientSecret` du PaymentIntent, la clé publique, le montant et l'abonnement en attente.
+2. Le front confirme le paiement avec le Payment Element.
+3. `POST /api/abonnements/paiement/finaliser` synchronise immédiatement le statut et l'échéance
+   (le webhook reste la source de vérité).
+
+Les URLs de retour sont calculées depuis l'en-tête `Origin` de l'appelant lorsqu'il est autorisé
+par `CORS_ORIGINS`, avec repli sur `FRONTEND_URL`. Aucune URL d'hébergeur n'est codée en dur.
+
+Webhook Stripe (Dashboard → Développeurs → Webhooks) : écouter
+`invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated`,
+`customer.subscription.deleted` et, pour l'ancien parcours hébergé, `checkout.session.completed`.
+
 

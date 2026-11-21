@@ -29,6 +29,52 @@ async function returnOrigin(req) {
   return (await cfg("FRONTEND_URL", "http://localhost:8080")).replace(/\/+$/, "");
 }
 
+/** Retrouve un forfait par identifiant (`tarifId`, `plan`) ou par nom. */
+async function resoudreTarif(body) {
+  const identifiant = body?.tarifId ? String(body.tarifId) : null;
+  const recherche = String(body?.plan ?? "").trim();
+  let tarif = identifiant ? await prisma.tarif.findUnique({ where: { id: identifiant } }) : null;
+  if (!tarif && recherche) {
+    tarif = await prisma.tarif.findFirst({
+      where: { OR: [{ id: recherche }, { nom: { equals: recherche, mode: "insensitive" } }] },
+    });
+  }
+  return tarif;
+}
+
+/** Prix Stripe réutilisable pour un forfait (créé à la volée si absent). */
+async function prixStripe(s, tarif, annuel) {
+  if (!annuel && tarif.stripePriceId) return tarif.stripePriceId;
+  const montant = Number(annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel);
+  if (!(montant > 0)) return null;
+  const price = await s.prices.create({
+    currency: "eur",
+    unit_amount: Math.round(montant * 100),
+    recurring: { interval: annuel ? "year" : "month" },
+    product_data: { name: `Kids'Med — ${tarif.nom}` },
+    metadata: { tarifId: tarif.id, periodicite: annuel ? "annuel" : "mensuel" },
+  });
+  if (!annuel) await prisma.tarif.update({ where: { id: tarif.id }, data: { stripePriceId: price.id } });
+  return price.id;
+}
+
+/** Fin de la période courante Stripe, selon la version d'API. */
+const finPeriode = (sub) => {
+  const ts = sub?.current_period_end ?? sub?.items?.data?.[0]?.current_period_end;
+  return ts ? new Date(ts * 1000) : undefined;
+};
+
+/** Statut applicatif correspondant à un statut d'abonnement Stripe. */
+const statutStripe = (statut) => ["active", "trialing"].includes(statut) ? "actif"
+  : ["past_due", "unpaid"].includes(statut) ? "suspendu"
+  : ["canceled", "incomplete_expired"].includes(statut) ? "resilie"
+  : "en_attente";
+
+/** Portée de l'abonnement : établissement pour une crèche, sinon le compte. */
+const porteeAbonnement = (user) => user.etablissementId
+  ? { etablissementId: user.etablissementId }
+  : { userId: user.id };
+
 // ---------- Tarifs ----------
 router.get("/tarifs", auth(), ah(async (req, res) => {
   const where = {};
@@ -85,21 +131,141 @@ router.put("/abonnements/:abonnementId/attribuer", auth(), roles(), ah(async (re
 router.delete("/abonnements/:id", auth(), roles(), ah(async (req, res) => { await prisma.abonnement.delete({ where: { id: req.params.id } }); ok(res, { supprime: true }); }));
 
 // ---------- Stripe ----------
+/** Crée (ou met à niveau) l'abonnement et renvoie le clientSecret du Payment Element. */
+router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
+  const tarif = await resoudreTarif(req.body);
+  if (!tarif) {
+    const disponibles = await prisma.tarif.findMany({ where: { actif: true }, select: { nom: true }, take: 20 });
+    fail(404, `Forfait introuvable${String(req.body?.plan ?? "").trim() ? ` : « ${String(req.body.plan).trim()} »` : ""}`, { forfaitsDisponibles: disponibles.map((t) => t.nom) });
+  }
+
+  const annuel = req.body?.periodicite === "annuel";
+  const portee = porteeAbonnement(req.user);
+  let abonnement = await prisma.abonnement.findFirst({ where: portee, orderBy: { createdAt: "desc" } });
+
+  // Forfait gratuit : activation immédiate, aucun passage par Stripe.
+  if (!(Number(tarif.prixMensuel) > 0)) {
+    const data = {
+      plan: tarif.nom, statut: "actif", prixMensuel: 0, gratuit: true,
+      dateDebut: new Date(), dateFin: null, stripeSubscriptionId: null, stripeCustomerId: null,
+    };
+    abonnement = abonnement
+      ? await prisma.abonnement.update({ where: { id: abonnement.id }, data })
+      : await prisma.abonnement.create({ data: { ...portee, ...data } });
+    return ok(res, { gratuit: true, statut: "actif", abonnementId: abonnement.id, plan: tarif.nom, montant: 0, clientSecret: null, publishableKey: null });
+  }
+
+  const s = await stripe();
+  if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
+  const publishableKey = await cfg("STRIPE_PUBLISHABLE_KEY", "");
+  if (!publishableKey) fail(503, "Paiement indisponible : STRIPE_PUBLISHABLE_KEY n'est pas configurée sur le serveur");
+
+  const priceId = await prixStripe(s, tarif, annuel);
+  if (!priceId) fail(400, "Ce forfait n'a pas de prix Stripe valide");
+
+  // Client Stripe réutilisé s'il existe déjà.
+  let customerId = abonnement?.stripeCustomerId ?? null;
+  if (!customerId) {
+    const client = await s.customers.create({
+      email: req.user.email,
+      name: [req.user.prenom, req.user.nom].filter(Boolean).join(" ") || undefined,
+      metadata: { userId: req.user.id, etablissementId: req.user.etablissementId ?? "" },
+    });
+    customerId = client.id;
+  }
+
+  const meta = { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom };
+  let sub = null;
+
+  // Changement de formule : modification de l'abonnement existant (avec prorata).
+  if (abonnement?.stripeSubscriptionId) {
+    try {
+      const actuel = await s.subscriptions.retrieve(abonnement.stripeSubscriptionId);
+      if (["active", "trialing", "past_due", "incomplete"].includes(actuel.status)) {
+        const item = actuel.items?.data?.[0];
+        sub = await s.subscriptions.update(actuel.id, {
+          items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
+          proration_behavior: "always_invoice",
+          payment_behavior: "default_incomplete",
+          expand: ["latest_invoice.payment_intent"],
+          metadata: meta,
+        });
+      }
+    } catch (e) {
+      console.warn("Stripe : abonnement existant inutilisable, création d'un nouveau —", e?.message ?? e);
+    }
+  }
+
+  if (!sub) {
+    sub = await s.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      payment_behavior: "default_incomplete",
+      payment_settings: { save_default_payment_method: "on_subscription" },
+      expand: ["latest_invoice.payment_intent"],
+      metadata: meta,
+    });
+  }
+
+  const facture = sub.latest_invoice && typeof sub.latest_invoice === "object" ? sub.latest_invoice : null;
+  const intention = facture?.payment_intent && typeof facture.payment_intent === "object" ? facture.payment_intent : null;
+  const clientSecret = intention?.client_secret ?? null;
+  const montant = intention?.amount ?? facture?.amount_due ?? 0;
+  const statut = clientSecret ? "en_attente" : "actif";
+
+  const data = {
+    plan: tarif.nom,
+    statut,
+    prixMensuel: Number(tarif.prixMensuel),
+    gratuit: false,
+    stripeCustomerId: customerId,
+    stripeSubscriptionId: sub.id,
+    dateDebut: new Date(),
+    dateFin: finPeriode(sub) ?? null,
+  };
+  abonnement = abonnement
+    ? await prisma.abonnement.update({ where: { id: abonnement.id }, data })
+    : await prisma.abonnement.create({ data: { ...portee, ...data } });
+
+  ok(res, {
+    abonnementId: abonnement.id,
+    clientSecret,
+    publishableKey: clientSecret ? publishableKey : null,
+    montant,
+    devise: "eur",
+    plan: tarif.nom,
+    statut,
+  });
+}));
+
+/** Confirme côté serveur l'état de l'abonnement après un paiement (sans attendre le webhook). */
+router.post("/abonnements/paiement/finaliser", auth(), ah(async (req, res) => {
+  required(req.body, ["abonnementId"]);
+  const abo = await prisma.abonnement.findUnique({ where: { id: String(req.body.abonnementId) } });
+  if (!abo) fail(404, "Abonnement introuvable");
+  const possede = abo.userId === req.user.id || (!!abo.etablissementId && abo.etablissementId === req.user.etablissementId);
+  if (!possede) fail(403, "Abonnement non accessible");
+  if (!abo.stripeSubscriptionId) return ok(res, { statut: abo.statut, plan: abo.plan, dateFin: abo.dateFin });
+
+  const s = await stripe();
+  if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
+  const sub = await s.subscriptions.retrieve(abo.stripeSubscriptionId);
+  const statut = statutStripe(sub.status);
+  const maj = await prisma.abonnement.update({
+    where: { id: abo.id },
+    data: { statut, dateFin: finPeriode(sub) ?? abo.dateFin },
+  });
+  ok(res, { statut: maj.statut, plan: maj.plan, dateFin: maj.dateFin });
+}));
+
 router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
   const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
   // Le forfait peut être désigné par son identifiant (tarifId ou plan) ou par son nom.
-  const identifiant = req.body?.tarifId ? String(req.body.tarifId) : null;
-  const recherche = String(req.body?.plan ?? "").trim();
-  let tarif = identifiant ? await prisma.tarif.findUnique({ where: { id: identifiant } }) : null;
-  if (!tarif && recherche) {
-    tarif = await prisma.tarif.findFirst({
-      where: { OR: [{ id: recherche }, { nom: { equals: recherche, mode: "insensitive" } }] },
-    });
-  }
+  const tarif = await resoudreTarif(req.body);
   if (!tarif) {
     const disponibles = await prisma.tarif.findMany({ where: { actif: true }, select: { nom: true }, take: 20 });
-    fail(404, `Forfait introuvable${recherche ? ` : « ${recherche} »` : ""}`, { forfaitsDisponibles: disponibles.map((t) => t.nom) });
+    fail(404, `Forfait introuvable${String(req.body?.plan ?? "").trim() ? ` : « ${String(req.body.plan).trim()} »` : ""}`, { forfaitsDisponibles: disponibles.map((t) => t.nom) });
   }
   const annuel = req.body.periodicite === "annuel";
   const unit = Math.round((annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel) * 100);
@@ -154,9 +320,22 @@ async function stripeWebhook(req, res) {
     const tarif = m.tarifId ? await prisma.tarif.findUnique({ where: { id: m.tarifId } }) : null;
     await prisma.abonnement.create({ data: { userId: m.userId || null, etablissementId: m.etablissementId || null, plan: m.plan ?? "inconnu", statut: "actif", prixMensuel: tarif?.prixMensuel ?? 0, stripeCustomerId: o.customer, stripeSubscriptionId: o.subscription } });
   }
-  if (ev.type === "customer.subscription.deleted" || ev.type === "invoice.payment_failed") {
-    const sub = ev.data.object.subscription ?? ev.data.object.id;
-    await prisma.abonnement.updateMany({ where: { stripeSubscriptionId: sub }, data: { statut: ev.type === "invoice.payment_failed" ? "suspendu" : "resilie" } });
+  if (ev.type === "invoice.payment_succeeded" || ev.type === "invoice.payment_failed") {
+    const o = ev.data.object;
+    const subId = typeof o.subscription === "string" ? o.subscription : o.subscription?.id;
+    if (subId) {
+      await prisma.abonnement.updateMany({
+        where: { stripeSubscriptionId: subId },
+        data: { statut: ev.type === "invoice.payment_failed" ? "suspendu" : "actif" },
+      });
+    }
+  }
+  if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(ev.type)) {
+    const sub = ev.data.object;
+    await prisma.abonnement.updateMany({
+      where: { stripeSubscriptionId: sub.id },
+      data: { statut: statutStripe(sub.status), ...(finPeriode(sub) ? { dateFin: finPeriode(sub) } : {}) },
+    });
   }
   res.json({ received: true });
 }
