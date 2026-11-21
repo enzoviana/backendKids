@@ -14,7 +14,7 @@ import usersRoutes from './routes/users.js';
 import enfantsRoutes from './routes/enfants.js';
 import quotidienRoutes from './routes/quotidien.js';
 import communicationRoutes from './routes/communication.js';
-import abonnementsRoutes from './routes/abonnements.js';
+import abonnementsRoutes, { stripeWebhook } from './routes/abonnements.js';
 import adminRoutes from './routes/admin.js';
 import terrainRoutes from './routes/terrain.js';
 import { readStoredFile } from './lib/file-store.js';
@@ -45,7 +45,7 @@ app.use(metricsMiddleware);
 // Webhook Stripe : corps brut, AVANT express.json
 app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res, next) => {
   try {
-    await abonnementsRoutes.stripeWebhook(req, res);
+    await stripeWebhook(req, res);
   } catch (err) {
     next(err);
   }
