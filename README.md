@@ -98,3 +98,22 @@ force donc SendGrid même si le SMTP est complet.
 4. vérifier le diagnostic : il affiche désormais la raison exacte du fournisseur retenu,
    l'origine de chaque variable et la complétude de la configuration SMTP
    (`smtpPret`, `sendgridPret`).
+
+## Paiement (Stripe)
+
+Le paiement utilise le **Checkout embarqué** : le formulaire Stripe s'affiche dans la page
+« Mon abonnement » de l'application, sans redirection vers un domaine d'hébergeur.
+
+- `STRIPE_PUBLISHABLE_KEY` (`pk_live_…` / `pk_test_…`) active le formulaire embarqué.
+  Sans elle, l'API renvoie automatiquement l'URL de la page Stripe hébergée.
+- `STRIPE_SECRET_KEY` reste nécessaire côté serveur pour créer la session.
+- `STRIPE_WEBHOOK_SECRET` valide la signature du webhook `POST /api/webhooks/stripe`.
+
+Les URLs de retour (`return_url`, `success_url`, `cancel_url`, portail client) sont calculées
+depuis l'en-tête `Origin` de l'appelant lorsqu'il est autorisé par `CORS_ORIGINS`, avec repli
+sur `FRONTEND_URL`. Aucune URL d'hébergeur n'est codée en dur : le retour se fait sur le
+domaine réellement utilisé (Vercel, domaine personnalisé…).
+
+Webhook Stripe (Dashboard → Développeurs → Webhooks) : écouter uniquement
+`checkout.session.completed`, `customer.subscription.deleted` et `invoice.payment_failed`.
+

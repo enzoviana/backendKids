@@ -14,6 +14,21 @@ const stripe = async () => {
 };
 const roleKey = (r) => (r === "superadmin" ? "admin" : r);
 
+/**
+ * Origine vers laquelle Stripe renvoie l'utilisateur.
+ *
+ * Priorité à l'en-tête `Origin` de la requête lorsqu'il est autorisé par CORS :
+ * le retour se fait donc sur le domaine réellement utilisé (Vercel, domaine
+ * personnalisé…), sans dépendre d'une URL d'hébergeur figée. Repli :
+ * `FRONTEND_URL`, puis localhost.
+ */
+async function returnOrigin(req) {
+  const origin = String(req.headers.origin || "").replace(/\/+$/, "");
+  const allowed = (await cfg("CORS_ORIGINS", "*")).split(",").map((s) => s.trim()).filter(Boolean);
+  if (origin && (allowed.includes("*") || allowed.includes(origin))) return origin;
+  return (await cfg("FRONTEND_URL", "http://localhost:8080")).replace(/\/+$/, "");
+}
+
 // ---------- Tarifs ----------
 router.get("/tarifs", auth(), ah(async (req, res) => {
   const where = {};
@@ -77,21 +92,40 @@ router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
   if (!tarif) fail(404, "Forfait introuvable");
   const annuel = req.body.periodicite === "annuel";
   const unit = Math.round((annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel) * 100);
-  const frontend = (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/+$/, "");
-  const session = await s.checkout.sessions.create({
-    mode: "subscription", customer_email: req.user.email,
+  const frontend = await returnOrigin(req);
+
+  // Checkout embarqué : le formulaire Stripe s'affiche dans notre propre page.
+  // Repli automatique sur la page hébergée si la clé publique n'est pas configurée.
+  const demandeEmbedded = req.body?.embedded === true || req.body?.mode === "embedded";
+  const publishableKey = await cfg("STRIPE_PUBLISHABLE_KEY", "");
+  const embedded = demandeEmbedded && !!publishableKey;
+  const retour = `${frontend}/abonnement?paiement=ok&session_id={CHECKOUT_SESSION_ID}`;
+
+  const base = {
+    mode: "subscription",
+    customer_email: req.user.email,
     line_items: [tarif.stripePriceId ? { price: tarif.stripePriceId, quantity: 1 } : { quantity: 1, price_data: { currency: "eur", unit_amount: unit, recurring: { interval: annuel ? "year" : "month" }, product_data: { name: `Kids'Med — ${tarif.nom}` } } }],
     metadata: { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom },
-    success_url: `${frontend}/abonnement?paiement=ok`, cancel_url: `${frontend}/abonnement?paiement=annule`,
+  };
+  const session = await s.checkout.sessions.create(embedded
+    ? { ...base, ui_mode: "embedded", redirect_on_completion: "if_required", return_url: retour }
+    : { ...base, success_url: retour, cancel_url: `${frontend}/abonnement?paiement=annule` });
+
+  ok(res, {
+    url: session.url ?? null,
+    clientSecret: embedded ? session.client_secret : null,
+    publishableKey: embedded ? publishableKey : null,
+    embedded,
+    sessionId: session.id,
+    ...(demandeEmbedded && !embedded ? { avertissement: "STRIPE_PUBLISHABLE_KEY absente : repli sur la page Stripe hébergée." } : {}),
   });
-  ok(res, { url: session.url, sessionId: session.id });
 }));
 router.post("/abonnements/portail", auth(), ah(async (req, res) => {
   const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
   const a = await prisma.abonnement.findFirst({ where: { userId: req.user.id, stripeCustomerId: { not: null } } });
   if (!a) fail(404, "Aucun abonnement Stripe pour ce compte");
-  const frontend = (await cfg("FRONTEND_URL", "https://kidsmedia.vercel.app")).replace(/\/+$/, "");
+  const frontend = await returnOrigin(req);
   const p = await s.billingPortal.sessions.create({ customer: a.stripeCustomerId, return_url: `${frontend}/abonnement` });
   ok(res, { url: p.url });
 }));

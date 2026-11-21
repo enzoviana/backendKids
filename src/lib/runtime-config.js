@@ -56,6 +56,7 @@ export const CONFIG_KEYS = [
   'GEOCODING_API_KEY',
   // Paiement
   'STRIPE_SECRET_KEY',
+  'STRIPE_PUBLISHABLE_KEY',
   'STRIPE_WEBHOOK_SECRET',
   // Sécurité et WebAuthn
   'WEBAUTHN_RP_ID',

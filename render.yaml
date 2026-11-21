@@ -18,9 +18,9 @@ services:
       - key: UPLOAD_DIR
         value: /var/data/uploads
       - key: FRONTEND_URL
-        value: https://crossrole-manager.lovable.app
+        value: https://kidsmedia.vercel.app
       - key: CORS_ORIGINS
-        value: https://crossrole-manager.lovable.app,http://localhost:8080
+        value: https://kidsmedia.vercel.app,http://localhost:8080
 databases:
   - name: kidsmed-db
     plan: basic-256mb
