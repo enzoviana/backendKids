@@ -75,6 +75,34 @@ const porteeAbonnement = (user) => user.etablissementId
   ? { etablissementId: user.etablissementId }
   : { userId: user.id };
 
+/**
+ * Corrige un statut local incohérent avec Stripe (ex. abonnement « actif » alors
+ * que le paiement n'a jamais abouti). Limité à une vérification par minute.
+ */
+const synchroRecente = new Map();
+async function synchroniserAbonnement(a) {
+  if (!a?.stripeSubscriptionId || a.gratuit) return a;
+  if (!["actif", "en_attente"].includes(a.statut)) return a;
+  const dernier = synchroRecente.get(a.id) ?? 0;
+  if (Date.now() - dernier < 60_000) return a;
+  const s = await stripe();
+  if (!s) return a;
+  synchroRecente.set(a.id, Date.now());
+  try {
+    const sub = await s.subscriptions.retrieve(a.stripeSubscriptionId);
+    const statut = statutStripe(sub.status);
+    if (statut !== a.statut) {
+      return await prisma.abonnement.update({
+        where: { id: a.id },
+        data: { statut, dateFin: finPeriode(sub) ?? a.dateFin },
+      });
+    }
+  } catch {
+    // Stripe indisponible : on conserve l'état local.
+  }
+  return a;
+}
+
 // ---------- Tarifs ----------
 router.get("/tarifs", auth(), ah(async (req, res) => {
   const where = {};
@@ -115,11 +143,12 @@ router.get("/abonnements/revenus", auth(), roles(), ah(async (req, res) => {
 }));
 router.get("/abonnements/me", auth(), ah(async (req, res) => {
   const a = await prisma.abonnement.findFirst({ where: { OR: [{ userId: req.user.id }, ...(req.user.etablissementId ? [{ etablissementId: req.user.etablissementId }] : [])] }, orderBy: { createdAt: "desc" } });
-  ok(res, a ?? null);
+  ok(res, a ? await synchroniserAbonnement(a) : null);
 }));
 router.get("/abonnements/etablissement/:etablissementId", auth(), ah(async (req, res) => {
   await assertEtab(req.user, req.params.etablissementId);
-  ok(res, await prisma.abonnement.findFirst({ where: { etablissementId: req.params.etablissementId }, orderBy: { createdAt: "desc" } }));
+  const a = await prisma.abonnement.findFirst({ where: { etablissementId: req.params.etablissementId }, orderBy: { createdAt: "desc" } });
+  ok(res, a ? await synchroniserAbonnement(a) : null);
 }));
 const aboData = (b) => ({ etablissementId: b.etablissementId || undefined, userId: b.userId || undefined, plan: b.plan, statut: b.statut, prixMensuel: b.prixMensuel != null && b.prixMensuel !== "" ? Number(b.prixMensuel) : undefined, dateDebut: toDate(b.dateDebut), dateFin: toDate(b.dateFin), gratuit: b.gratuit != null ? !!b.gratuit : undefined });
 router.post("/abonnements", auth(), roles(), ah(async (req, res) => {
@@ -176,12 +205,14 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
 
   const meta = { userId: req.user.id, etablissementId: req.user.etablissementId ?? "", tarifId: tarif.id, plan: tarif.nom };
   let sub = null;
+  let miseANiveau = false;
 
   // Changement de formule : modification de l'abonnement existant (avec prorata).
   if (abonnement?.stripeSubscriptionId) {
     try {
       const actuel = await s.subscriptions.retrieve(abonnement.stripeSubscriptionId);
       if (["active", "trialing", "past_due", "incomplete"].includes(actuel.status)) {
+        miseANiveau = ["active", "trialing"].includes(actuel.status);
         const item = actuel.items?.data?.[0];
         sub = await s.subscriptions.update(actuel.id, {
           items: item ? [{ id: item.id, price: priceId }] : [{ price: priceId }],
@@ -207,25 +238,44 @@ router.post("/abonnements/paiement/intent", auth(), ah(async (req, res) => {
     });
   }
 
-  const facture = sub.latest_invoice && typeof sub.latest_invoice === "object" ? sub.latest_invoice : null;
+  // Facture et moyen de paiement, avec compatibilité entre versions d'API Stripe
+  // (`payment_intent` historique, `confirmation_secret` récent).
+  const factureBrute = sub.latest_invoice;
+  let facture = factureBrute && typeof factureBrute === "object" ? factureBrute : null;
+  if (!facture && typeof factureBrute === "string") {
+    facture = await s.invoices.retrieve(factureBrute, { expand: ["payment_intent"] });
+  }
   const intention = facture?.payment_intent && typeof facture.payment_intent === "object" ? facture.payment_intent : null;
-  const clientSecret = intention?.client_secret ?? null;
   const montant = intention?.amount ?? facture?.amount_due ?? 0;
-  const statut = clientSecret ? "en_attente" : "actif";
+  const clientSecret = intention?.client_secret ?? facture?.confirmation_secret?.client_secret ?? null;
+  const paiementRequis = Number(montant) > 0;
+  const statut = paiementRequis ? "en_attente" : "actif";
 
-  const data = {
-    plan: tarif.nom,
-    statut,
-    prixMensuel: Number(tarif.prixMensuel),
-    gratuit: false,
-    stripeCustomerId: customerId,
-    stripeSubscriptionId: sub.id,
-    dateDebut: new Date(),
-    dateFin: finPeriode(sub) ?? null,
-  };
-  abonnement = abonnement
-    ? await prisma.abonnement.update({ where: { id: abonnement.id }, data })
-    : await prisma.abonnement.create({ data: { ...portee, ...data } });
+  if (miseANiveau) {
+    // Ne jamais changer la formule en base avant que le prorata soit réglé.
+    abonnement = await prisma.abonnement.update({
+      where: { id: abonnement.id },
+      data: { stripeCustomerId: customerId, stripeSubscriptionId: sub.id },
+    });
+  } else {
+    const data = {
+      plan: tarif.nom,
+      statut,
+      prixMensuel: Number(tarif.prixMensuel),
+      gratuit: false,
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: sub.id,
+      dateDebut: new Date(),
+      dateFin: finPeriode(sub) ?? null,
+    };
+    abonnement = abonnement
+      ? await prisma.abonnement.update({ where: { id: abonnement.id }, data })
+      : await prisma.abonnement.create({ data: { ...portee, ...data } });
+  }
+
+  if (paiementRequis && !clientSecret) {
+    fail(502, "Stripe n'a pas renvoyé de moyen de paiement. Réessayez dans un instant.");
+  }
 
   ok(res, {
     abonnementId: abonnement.id,
@@ -251,9 +301,16 @@ router.post("/abonnements/paiement/finaliser", auth(), ah(async (req, res) => {
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
   const sub = await s.subscriptions.retrieve(abo.stripeSubscriptionId);
   const statut = statutStripe(sub.status);
+  const tarifId = sub.metadata?.tarifId;
+  const tarif = tarifId ? await prisma.tarif.findUnique({ where: { id: tarifId } }) : null;
   const maj = await prisma.abonnement.update({
     where: { id: abo.id },
-    data: { statut, dateFin: finPeriode(sub) ?? abo.dateFin },
+    data: {
+      statut,
+      dateFin: finPeriode(sub) ?? abo.dateFin,
+      plan: tarif?.nom ?? sub.metadata?.plan ?? abo.plan,
+      prixMensuel: tarif ? Number(tarif.prixMensuel) : abo.prixMensuel,
+    },
   });
   ok(res, { statut: maj.statut, plan: maj.plan, dateFin: maj.dateFin });
 }));
@@ -332,9 +389,15 @@ async function stripeWebhook(req, res) {
   }
   if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(ev.type)) {
     const sub = ev.data.object;
+    const tarifId = sub.metadata?.tarifId;
+    const tarif = tarifId ? await prisma.tarif.findUnique({ where: { id: tarifId } }) : null;
     await prisma.abonnement.updateMany({
       where: { stripeSubscriptionId: sub.id },
-      data: { statut: statutStripe(sub.status), ...(finPeriode(sub) ? { dateFin: finPeriode(sub) } : {}) },
+      data: {
+        statut: statutStripe(sub.status),
+        ...(finPeriode(sub) ? { dateFin: finPeriode(sub) } : {}),
+        ...(tarif ? { plan: tarif.nom, prixMensuel: Number(tarif.prixMensuel) } : {}),
+      },
     });
   }
   res.json({ received: true });
