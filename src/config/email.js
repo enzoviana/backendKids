@@ -75,30 +75,34 @@ export const verifySendGridConfig = () => {
 /**
  * Créer un transporteur SMTP
  */
-export const createSMTPTransporter = () => {
+export const createSMTPTransporter = (overrides = {}) => {
   if (emailConfig.mockMode) {
     console.log('📧 Mode MOCK activé - Les emails seront affichés dans la console');
     return null;
   }
 
-  if (!emailConfig.smtp.auth.user || !emailConfig.smtp.auth.pass) {
+  // Les valeurs peuvent venir de la base (console développeur) et surcharger l'environnement.
+  const host = overrides.host || emailConfig.smtp.host;
+  const port = Number(overrides.port || emailConfig.smtp.port) || 587;
+  const secure = overrides.secure !== undefined ? !!overrides.secure : emailConfig.smtp.secure || port === 465;
+  const user = overrides.user || emailConfig.smtp.auth.user;
+  const pass = overrides.pass || emailConfig.smtp.auth.pass;
+
+  if (!user || !pass) {
     console.warn('⚠️ Configuration SMTP incomplète - Les emails ne seront pas envoyés');
-    console.warn('💡 Configurez SMTP_USER et SMTP_PASSWORD dans votre .env');
+    console.warn('💡 Configurez SMTP_USER et SMTP_PASSWORD dans votre .env ou la console développeur');
     return null;
   }
 
   try {
     const transporter = nodemailer.createTransport({
-      host: emailConfig.smtp.host,
-      port: emailConfig.smtp.port,
-      secure: emailConfig.smtp.secure,
+      host,
+      port,
+      secure,
       connectionTimeout: 10000, // 10 secondes timeout
       greetingTimeout: 10000,
       socketTimeout: 10000,
-      auth: {
-        user: emailConfig.smtp.auth.user,
-        pass: emailConfig.smtp.auth.pass,
-      },
+      auth: { user, pass },
       // Options supplémentaires pour Render
       tls: {
         rejectUnauthorized: false, // Accepter les certificats auto-signés
@@ -114,7 +118,7 @@ export const createSMTPTransporter = () => {
       },
     });
 
-    console.log(`✅ Transporteur SMTP configuré (${emailConfig.smtp.host}:${emailConfig.smtp.port}) - IPv4 forcé`);
+    console.log(`✅ Transporteur SMTP configuré (${host}:${port}) - IPv4 forcé`);
 
     // Vérifier la connexion au démarrage
     transporter.verify((error, success) => {

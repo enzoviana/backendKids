@@ -35,12 +35,25 @@ router.put("/developer/config", auth(), devOnly, ah(async (req, res) => {
   await logSecu(req, "config_modifiee", { autorise: true });
   ok(res, { enregistre: true });
 }));
+router.get("/developer/config/email/diagnostic", auth(), devOnly, ah(async (_req, res) => {
+  ok(res, await svc.emailService.diagnostic());
+}));
 router.post("/developer/config/test", auth(), devOnly, ah(async (req, res) => {
   required(req.body, ["canal", "destinataire"]);
-  const r = req.body.canal === "sms"
-    ? await svc.sendSms(req.body.destinataire, "Kids'Med : test d'envoi SMS réussi.")
-    : await svc.sendEmail(req.body.destinataire, "Test Kids'Med", "none", {}, "Test d'envoi e-mail réussi.");
-  ok(res, r);
+  if (req.body.canal === "sms") {
+    const r = await svc.sendSms(req.body.destinataire, "Kids'Med : test d'envoi SMS réussi.");
+    return ok(res, { envoye: true, ...r });
+  }
+  const html = `<p>Test d'envoi Kids'Med IA réussi le ${new Date().toLocaleString("fr-FR")}.</p>`;
+  const envoye = await svc.sendEmail(req.body.destinataire, "Test Kids'Med IA", html);
+  const diagnostic = await svc.emailService.diagnostic();
+  ok(res, {
+    envoye: envoye !== false && !diagnostic.simule,
+    simule: diagnostic.simule,
+    mode: diagnostic.mode,
+    diagnostic,
+    ...(envoye === false ? { erreur: "Envoi refusé par le fournisseur — consultez les logs du serveur." } : {}),
+  });
 }));
 
 // ---------- Santé ----------

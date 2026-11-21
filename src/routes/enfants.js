@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { prisma, ok, fail, ah, required, auth, roles, isAdmin, genCode, toDate, logSecu, notify, fullName } from '../lib/core.js';
 import { assertEnfant, assertEtab, enfantScope } from '../lib/access.js';
-import { sendEmail } from '../lib/services.js';
+import { sendEmail, emailService } from '../lib/services.js';
 
 const router = express.Router();
 
@@ -309,11 +309,12 @@ router.post("/liaisons", auth(), roles("creche", "parent"), ah(async (req, res) 
     const link = inviteLink(email, token);
     let emailSent = false;
     try {
-      emailSent = (await sendEmail(
+      const envoi = await sendEmail(
         email,
         `Invitation à rejoindre le dossier de ${enfant.prenom}`,
         invitationHtml({ enfantNom: fullName(enfant), etablissementNom: etablissement?.nom, role, link }),
-      )) !== false;
+      );
+      emailSent = envoi !== false && !emailService.isMock();
     } catch (err) {
       console.error("Invitation liaison : envoi e-mail impossible", err?.message ?? err);
     }

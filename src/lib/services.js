@@ -8,9 +8,34 @@ import twilio from 'twilio';
 import os from 'os';
 import crypto from 'crypto';
 import fs from 'fs';
+import net from 'net';
 
 
 
+
+/** Extrait l'adresse et le nom d'une valeur « Nom <adresse@domaine> » ou « adresse@domaine ». */
+function parseFrom(value, fallbackName) {
+  const raw = String(value ?? "").trim();
+  const m = raw.match(/^(.*?)\s*<([^>]+)>$/);
+  if (m) return { name: m[1].replace(/^["']|["']$/g, "").trim() || fallbackName, email: m[2].trim() };
+  return { name: fallbackName, email: raw };
+}
+
+/** Teste l'ouverture d'une connexion TCP (joignabilité d'un port SMTP). */
+function tcpReachable(host, port, timeout = 6000) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host, port });
+    const termine = (err) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      if (err) reject(err); else resolve(true);
+    };
+    socket.setTimeout(timeout);
+    socket.once('connect', () => termine());
+    socket.once('timeout', () => termine(new Error(`Délai dépassé (${timeout} ms) vers ${host}:${port}`)));
+    socket.once('error', (err) => termine(err));
+  });
+}
 
 /**
  * Service d'envoi d'emails
@@ -19,6 +44,10 @@ class EmailService {
   transporter = null;
   useSendGrid = false;
   initialized = false;
+  provider = 'sendgrid';
+  mode = 'mock';
+  smtp = null;
+  from = { ...emailConfig.from };
 
   constructor() {
     // L'initialisation sera faite de manière lazy au premier envoi
@@ -27,48 +56,89 @@ class EmailService {
   }
 
   /**
-   * Initialise ou réinitialise le service email avec la config actuelle
+   * Lit la configuration effective (base puis variables d'environnement).
+   * Permet de changer de fournisseur depuis la console développeur sans redéploiement.
+   */
+  async readConfig() {
+    const smtpPort = Number(await cfg('SMTP_PORT', String(emailConfig.smtp.port))) || 587;
+    const smtp = {
+      host: await cfg('SMTP_HOST', emailConfig.smtp.host),
+      port: smtpPort,
+      secure: String(await cfg('SMTP_SECURE', String(emailConfig.smtp.secure))).toLowerCase() === 'true' || smtpPort === 465,
+      user: await cfg('SMTP_USER', emailConfig.smtp.auth.user),
+      pass: await cfg('SMTP_PASSWORD', emailConfig.smtp.auth.pass),
+    };
+    const nomExpediteur = await cfg('SMTP_FROM_NAME', emailConfig.from.name);
+    const from = parseFrom(await cfg('EMAIL_FROM', emailConfig.from.email), nomExpediteur || emailConfig.from.name);
+    return {
+      sendgridKey: await cfg('SENDGRID_API_KEY', emailConfig.sendgrid.apiKey),
+      providerRaw: (await cfg('EMAIL_PROVIDER', emailConfig.provider)) || 'auto',
+      from: { email: from.email || emailConfig.from.email, name: nomExpediteur || from.name || emailConfig.from.name },
+      smtp,
+      mockMode: emailConfig.mockMode || process.env.EMAIL_MOCK_MODE === 'true',
+    };
+  }
+
+  /**
+   * Initialise ou réinitialise le service email avec la config actuelle.
+   *
+   * `EMAIL_PROVIDER=auto` choisit SMTP dès qu'un hôte, un utilisateur et un mot
+   * de passe sont configurés, puis SendGrid en secours. Cela permet d'utiliser
+   * votre propre serveur d'e-mail (Hostinger, VPS…) sans dépendre d'une API tierce.
    */
   async initialize() {
-    // Charger la configuration depuis la DB si disponible
-    const sendgridKey = await cfg('SENDGRID_API_KEY', emailConfig.sendgrid.apiKey);
-    const provider = await cfg('EMAIL_PROVIDER', emailConfig.provider);
-    const mockMode = emailConfig.mockMode || process.env.EMAIL_MOCK_MODE === 'true';
+    const { sendgridKey, providerRaw, from, smtp, mockMode } = await this.readConfig();
+    this.provider = providerRaw.trim().toLowerCase() || 'auto';
+    this.from = { email: from.email || emailConfig.from.email, name: from.name || emailConfig.from.name };
+    this.smtp = smtp;
+    this.useSendGrid = false;
+    this.transporter = null;
 
-    // Mode MOCK activé explicitement
+    const smtpReady = !!(smtp.host && smtp.user && smtp.pass);
+    const sendgridReady = !!(sendgridKey && sendgridKey.trim());
+
     if (mockMode) {
-      console.log('📧 Mode MOCK activé - Les emails seront affichés dans la console');
-      this.useSendGrid = false;
-      this.transporter = null;
+      this.mode = 'mock';
       this.initialized = true;
+      console.log('📧 Mode MOCK activé - Les emails seront affichés dans la console');
       return;
     }
 
-    // Configuration du provider d'emails
-    if (provider === 'sendgrid') {
-      // Tenter de configurer SendGrid
-      if (sendgridKey && sendgridKey.trim()) {
+    const choisir = (mode) => {
+      if (mode === 'smtp') {
+        this.transporter = createSMTPTransporter(smtp);
+        this.useSendGrid = false;
+        this.mode = this.transporter ? 'smtp' : 'mock';
+        if (this.transporter) console.log('📮 Envoi via votre serveur SMTP — aucun fournisseur d’API requis');
+      } else if (mode === 'sendgrid') {
+        sgMail.setApiKey(sendgridKey.trim());
         this.useSendGrid = true;
-        sgMail.setApiKey(sendgridKey);
-        console.log('✅ SendGrid initialisé avec clé depuis DB - Les emails seront envoyés via SendGrid API');
+        this.transporter = null;
+        this.mode = 'sendgrid';
+        console.log('✅ Envoi via SendGrid');
       } else {
-        // Pas d'API Key SendGrid → basculer en mode MOCK automatiquement
-        console.warn('⚠️ SendGrid configuré comme provider mais SENDGRID_API_KEY manquante');
-        console.warn('📧 Basculement automatique en MODE MOCK - Les emails seront affichés dans la console');
-        console.warn('💡 Pour utiliser SendGrid: Configurez SENDGRID_API_KEY dans /api/developer/config');
         this.useSendGrid = false;
         this.transporter = null;
+        this.mode = 'mock';
+        console.warn('⚠️ Aucun fournisseur e-mail opérationnel : mode MOCK');
       }
-    } else if (provider === 'smtp') {
-      // Utiliser SMTP uniquement si explicitement demandé
-      console.log('📮 SMTP configuré comme provider');
-      this.transporter = createSMTPTransporter();
-      this.useSendGrid = false;
+    };
+
+    if (this.provider === 'auto') {
+      choisir(smtpReady ? 'smtp' : sendgridReady ? 'sendgrid' : 'none');
+    } else if (this.provider === 'smtp') {
+      if (!smtpReady) {
+        console.warn('⚠️ SMTP sélectionné mais configuration incomplète (hôte, utilisateur ou mot de passe)');
+        choisir('none');
+      } else choisir('smtp');
+    } else if (this.provider === 'sendgrid') {
+      if (!sendgridReady) {
+        console.warn('⚠️ SendGrid sélectionné mais SENDGRID_API_KEY manquante');
+        choisir('none');
+      } else choisir('sendgrid');
     } else {
-      console.warn(`⚠️ Provider email inconnu: ${provider}`);
-      console.warn('📧 Basculement automatique en MODE MOCK');
-      this.useSendGrid = false;
-      this.transporter = null;
+      console.warn(`⚠️ Provider email inconnu : ${this.provider} (auto, smtp ou sendgrid attendu)`);
+      choisir(smtpReady ? 'smtp' : sendgridReady ? 'sendgrid' : 'none');
     }
 
     this.initialized = true;
@@ -89,6 +159,54 @@ class EmailService {
    */
   isMock() {
     return emailConfig.mockMode || (!this.useSendGrid && !this.transporter);
+  }
+
+  /**
+   * Diagnostic de la configuration e-mail : fournisseur retenu, adresse d'envoi
+   * et joignabilité du port SMTP depuis l'instance (Render bloque les ports
+   * 25/465/587 sur les services gratuits).
+   */
+  async diagnostic() {
+    if (!this.initialized) await this.initialize();
+    const smtp = this.smtp ?? {
+      host: emailConfig.smtp.host,
+      port: emailConfig.smtp.port,
+      secure: emailConfig.smtp.secure,
+      user: emailConfig.smtp.auth.user,
+      pass: emailConfig.smtp.auth.pass,
+    };
+
+    let reachable = null;
+    let erreur = null;
+    if (smtp.host) {
+      try {
+        await tcpReachable(smtp.host, smtp.port, 6000);
+        reachable = true;
+      } catch (e) {
+        reachable = false;
+        erreur = e?.message ?? String(e);
+      }
+    }
+
+    return {
+      providerDemande: this.provider,
+      mode: this.mode,
+      simule: this.isMock(),
+      adresseEnvoi: this.from,
+      smtp: {
+        hote: smtp.host,
+        port: smtp.port,
+        secure: !!smtp.secure,
+        utilisateur: smtp.user ? `${String(smtp.user).slice(0, 3)}•••` : '',
+        motDePasseConfigure: !!smtp.pass,
+        joignable: reachable,
+        erreur,
+        note: reachable === false
+          ? "Le port SMTP n'est pas joignable depuis cette instance. Sur Render, les ports 25/465/587 sont bloqués pour les services gratuits : passez à une instance payante ou utilisez l'API HTTP d'un fournisseur."
+          : null,
+      },
+      sendgrid: { configure: !!emailConfig.sendgrid.apiKey },
+    };
   }
 
   /**
@@ -126,8 +244,8 @@ async sendEmail(to, subject, html) {
     // Afficher la configuration réellement utilisée
     console.log('\n🔧 [DEBUG] Configuration email active');
     console.log('[DEBUG] mockMode:', emailConfig.mockMode);
-    console.log('[DEBUG] from.name:', emailConfig.from?.name);
-    console.log('[DEBUG] from.email:', emailConfig.from?.email);
+    console.log('[DEBUG] from.name:', this.from?.name);
+    console.log('[DEBUG] from.email:', this.from?.email);
     console.log('[DEBUG] useSendGrid:', this.useSendGrid);
     console.log('[DEBUG] transporter disponible:', Boolean(this.transporter));
 
@@ -138,7 +256,7 @@ async sendEmail(to, subject, html) {
       console.log('[MOCK] Sujet:', subject);
       console.log(
         '[MOCK] De:',
-        `${emailConfig.from.name} <${emailConfig.from.email}>`
+        `${this.from.name} <${this.from.email}>`
       );
       console.log('[MOCK] HTML: [Contenu masqué - voir template]');
       console.log('====================================\n');
@@ -150,8 +268,8 @@ async sendEmail(to, subject, html) {
       const msg = {
         to,
         from: {
-          email: emailConfig.from.email,
-          name: emailConfig.from.name,
+          email: this.from.email,
+          name: this.from.name,
         },
         subject,
         html,
@@ -185,7 +303,7 @@ async sendEmail(to, subject, html) {
     // Mode SMTP
     if (this.transporter) {
       const smtpPayload = {
-        from: `"${emailConfig.from.name}" <${emailConfig.from.email}>`,
+        from: `"${this.from.name}" <${this.from.email}>`,
         to,
         subject,
         html,
@@ -1103,8 +1221,10 @@ export const CONFIG_KEYS = [
   'EMAIL_FROM',
   'SMTP_HOST',
   'SMTP_PORT',
+  'SMTP_SECURE',
   'SMTP_USER',
   'SMTP_PASSWORD',
+  'SMTP_FROM_NAME',
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_FROM',
