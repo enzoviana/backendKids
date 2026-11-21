@@ -88,7 +88,15 @@ router.delete("/abonnements/:id", auth(), roles(), ah(async (req, res) => { awai
 router.post("/abonnements/checkout-session", auth(), ah(async (req, res) => {
   const s = await stripe();
   if (!s) fail(503, "Paiement indisponible : STRIPE_SECRET_KEY n'est pas configurée sur le serveur");
-  const tarif = req.body.tarifId ? await prisma.tarif.findUnique({ where: { id: req.body.tarifId } }) : await prisma.tarif.findFirst({ where: { nom: { equals: String(req.body.plan ?? ""), mode: "insensitive" } } });
+  // Le forfait peut être désigné par son identifiant (tarifId ou plan) ou par son nom.
+  const identifiant = req.body?.tarifId ? String(req.body.tarifId) : null;
+  const recherche = String(req.body?.plan ?? "").trim();
+  let tarif = identifiant ? await prisma.tarif.findUnique({ where: { id: identifiant } }) : null;
+  if (!tarif && recherche) {
+    tarif = await prisma.tarif.findFirst({
+      where: { OR: [{ id: recherche }, { nom: { equals: recherche, mode: "insensitive" } }] },
+    });
+  }
   if (!tarif) fail(404, "Forfait introuvable");
   const annuel = req.body.periodicite === "annuel";
   const unit = Math.round((annuel ? tarif.prixAnnuel ?? tarif.prixMensuel * 12 : tarif.prixMensuel) * 100);
